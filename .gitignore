@@ -11,3 +11,10 @@ functions/lib/
 prototype/.npm-cache/
 prototype/node_modules/
 prototype/.npmrc
+ios/OnegaiCharin/DerivedData-Device/
+ios/OnegaiCharin/build/
+ios/OnegaiCharin/Pods/
+ios/OnegaiCharin/Pods.xcodeproj/
+ios/OnegaiCharin/Pods.xcodeproj/project.xcworkspace/
+ios/OnegaiCharin/Pods.xcodeproj/project.xcworkspace/xcuserdata/
+ios/OnegaiCharin/Pods.xcodeproj/project.xcworkspace/xcuserdata/

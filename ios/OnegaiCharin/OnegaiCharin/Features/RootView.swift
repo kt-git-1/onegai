@@ -12,6 +12,12 @@ struct RootView: View {
                 AuthenticationView()
             case .emailRegistration:
                 EmailRegistrationView()
+            case .emailLogin:
+                EmailLoginView()
+            case .inviteCodeEntry:
+                InviteCodeEntryView()
+            case .inviteAcceptance:
+                InviteAcceptanceView()
             case .profile:
                 ProfileView()
             case .template:
@@ -20,6 +26,8 @@ struct RootView: View {
                 InviteView()
             case .inviteWaiting:
                 InviteWaitingView()
+            case .charinCelebration:
+                CharinCelebrationView()
             case .main:
                 MainTabView()
             }

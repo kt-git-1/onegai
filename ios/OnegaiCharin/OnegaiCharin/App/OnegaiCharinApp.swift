@@ -17,7 +17,9 @@ struct OnegaiCharinApp: App {
                 .environmentObject(appState)
                 .preferredColorScheme(.light)
                 .onOpenURL { url in
-                    GIDSignIn.sharedInstance.handle(url)
+                    if !GIDSignIn.sharedInstance.handle(url) {
+                        Task { await appState.handleIncomingURL(url) }
+                    }
                 }
         }
     }

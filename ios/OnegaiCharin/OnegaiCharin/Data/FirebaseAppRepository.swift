@@ -26,6 +26,73 @@ final class FirebaseAppRepository: AppRepository {
         return AuthUser(id: result.user.uid, email: result.user.email)
     }
 
+    func signIn(email: String, password: String) async throws -> AuthUser {
+        let result = try await auth.signIn(withEmail: email, password: password)
+        return AuthUser(id: result.user.uid, email: result.user.email)
+    }
+
+    func sendPasswordReset(email: String) async throws {
+        try await auth.sendPasswordReset(withEmail: email)
+    }
+
+    func loadSession() async throws -> AppSession {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        let userDocument = try await firestore.collection("users").document(userId).getDocument()
+        guard userDocument.exists else {
+            return AppSession(profile: nil, initialTemplate: nil)
+        }
+
+        let profile = mapUserProfile(userDocument)
+        guard let groupId = profile.activeGroupId else {
+            return AppSession(profile: profile, initialTemplate: nil)
+        }
+
+        async let groupDocument = firestore.collection("groups").document(groupId).getDocument()
+        async let bankDocuments = firestore.collection("piggyBanks").whereField("groupId", isEqualTo: groupId).getDocuments()
+        async let requestDocuments = firestore.collection("requests").whereField("groupId", isEqualTo: groupId).getDocuments()
+        async let rewardDocuments = firestore.collection("rewards").whereField("groupId", isEqualTo: groupId).getDocuments()
+        async let inviteDocuments = firestore.collection("invites").whereField("groupId", isEqualTo: groupId).getDocuments()
+        async let recordDocuments = firestore.collection("records").whereField("groupId", isEqualTo: groupId).getDocuments()
+        let (groupSnapshot, bankSnapshot, requestSnapshot, rewardSnapshot, inviteSnapshot, recordSnapshot) = try await (
+            groupDocument,
+            bankDocuments,
+            requestDocuments,
+            rewardDocuments,
+            inviteDocuments,
+            recordDocuments
+        )
+
+        let group = try mapGroup(groupSnapshot)
+        let partnerProfile: UserProfile?
+        if let partnerId = group.memberIds.first(where: { $0 != userId }) {
+            let partnerDocument = try await firestore.collection("users").document(partnerId).getDocument()
+            partnerProfile = partnerDocument.exists ? mapUserProfile(partnerDocument) : nil
+        } else {
+            partnerProfile = nil
+        }
+        let invites = try inviteSnapshot.documents.map(mapInvite)
+        guard let invite = invites.max(by: { $0.createdAt < $1.createdAt }) else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        let initialTemplate = InitialTemplateResult(
+            group: group,
+            piggyBanks: try bankSnapshot.documents.map(mapPiggyBank),
+            requests: try requestSnapshot.documents.map(mapRequest),
+            rewards: try rewardSnapshot.documents.map(mapReward),
+            invite: invite
+        )
+        let records = try recordSnapshot.documents
+            .map(mapRecord)
+            .filter { $0.status == .active }
+            .sorted { $0.createdAt > $1.createdAt }
+        return AppSession(
+            profile: profile,
+            initialTemplate: initialTemplate,
+            partnerProfile: partnerProfile,
+            records: records
+        )
+    }
+
     func saveProfile(displayName: String, iconEmoji: String?) async throws -> UserProfile {
         guard let user = auth.currentUser else { throw AppRepositoryError.unauthenticated }
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -114,6 +181,201 @@ final class FirebaseAppRepository: AppRepository {
             throw AppRepositoryError.invalidBackendResponse
         }
         return Invite(id: id, groupId: groupId, code: code, createdBy: userId, status: .active, expiresAt: expiresAt, createdAt: Date(), usedAt: nil, usedBy: nil)
+    }
+
+    func resolveInvite(identifier: String) async throws -> InvitePreview {
+        let response = try await functions.httpsCallable("resolveInvite").call(["identifier": identifier])
+        guard
+            let data = response.data as? [String: Any],
+            let id = data["id"] as? String,
+            let code = data["code"] as? String,
+            let inviterName = data["inviterName"] as? String,
+            let expiresAtValue = data["expiresAt"] as? String,
+            let expiresAt = parseISO8601(expiresAtValue)
+        else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        return InvitePreview(
+            id: id,
+            code: code,
+            inviterName: inviterName,
+            inviterEmoji: data["inviterEmoji"] as? String,
+            expiresAt: expiresAt
+        )
+    }
+
+    func acceptInvite(id: String) async throws {
+        _ = try await functions.httpsCallable("acceptInvite").call(["inviteId": id])
+    }
+
+    func createRequest(_ draft: RequestDraft) async throws -> RequestItem {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        let user = try await firestore.collection("users").document(userId).getDocument()
+        guard let groupId = user.get("activeGroupId") as? String else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        let normalized = try normalizedDraft(draft)
+        let reference = firestore.collection("requests").document()
+        let now = Date()
+        let request = RequestItem(
+            id: reference.documentID,
+            groupId: groupId,
+            createdBy: userId,
+            title: normalized.title,
+            iconEmoji: normalized.iconEmoji,
+            coinAmount: normalized.coinAmount,
+            piggyBankType: normalized.piggyBankType,
+            repeatType: normalized.repeatType,
+            status: .active,
+            completionCount: 0,
+            lastCompletedAt: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        try await reference.setData(requestData(request))
+        return request
+    }
+
+    func updateRequest(_ request: RequestItem, draft: RequestDraft) async throws -> RequestItem {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        guard request.createdBy == userId else { throw AppRepositoryError.requestNotOwned }
+        let normalized = try normalizedDraft(draft)
+        var updated = request
+        updated.title = normalized.title
+        updated.iconEmoji = normalized.iconEmoji
+        updated.coinAmount = normalized.coinAmount
+        updated.piggyBankType = normalized.piggyBankType
+        updated.repeatType = normalized.repeatType
+        updated.updatedAt = Date()
+        try await firestore.collection("requests").document(request.id).setData(requestData(updated), merge: true)
+        return updated
+    }
+
+    func hideRequest(_ request: RequestItem) async throws -> RequestItem {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        guard request.createdBy == userId else { throw AppRepositoryError.requestNotOwned }
+        var hidden = request
+        hidden.status = .hidden
+        hidden.updatedAt = Date()
+        try await firestore.collection("requests").document(request.id).updateData([
+            "status": hidden.status.rawValue,
+            "updatedAt": Timestamp(date: hidden.updatedAt),
+        ])
+        return hidden
+    }
+
+    func charinRequest(groupId: String, requestId: String) async throws -> CharinResult {
+        let response = try await functions.httpsCallable("charinRequest").call([
+            "groupId": groupId,
+            "requestId": requestId,
+        ])
+        guard
+            let data = response.data as? [String: Any],
+            let recordId = data["recordId"] as? String,
+            let resultGroupId = data["groupId"] as? String,
+            let userId = data["userId"] as? String,
+            let resultRequestId = data["requestId"] as? String,
+            let piggyBankId = data["piggyBankId"] as? String,
+            let piggyBankName = data["piggyBankName"] as? String,
+            let title = data["title"] as? String,
+            let iconEmoji = data["iconEmoji"] as? String,
+            let coinAmount = integer(data["coinAmount"]),
+            let balanceBefore = integer(data["balanceBefore"]),
+            let balanceAfter = integer(data["balanceAfter"]),
+            let requestStatusValue = data["requestStatus"] as? String,
+            let requestStatus = RequestItem.Status(rawValue: requestStatusValue),
+            let completionCount = integer(data["completionCount"]),
+            let createdAtValue = data["createdAt"] as? String,
+            let createdAt = parseISO8601(createdAtValue)
+        else { throw AppRepositoryError.invalidBackendResponse }
+
+        let targetReward: TargetRewardProgress?
+        if let value = data["targetReward"] as? [String: Any],
+           let id = value["id"] as? String,
+           let rewardTitle = value["title"] as? String,
+           let rewardEmoji = value["iconEmoji"] as? String,
+           let remainingCoins = integer(value["remainingCoins"]),
+           let isExchangeable = value["isExchangeable"] as? Bool,
+           let becameExchangeable = value["becameExchangeable"] as? Bool {
+            targetReward = TargetRewardProgress(
+                id: id,
+                title: rewardTitle,
+                iconEmoji: rewardEmoji,
+                remainingCoins: remainingCoins,
+                isExchangeable: isExchangeable,
+                becameExchangeable: becameExchangeable
+            )
+        } else {
+            targetReward = nil
+        }
+
+        let record = ActivityRecord(
+            id: recordId,
+            groupId: resultGroupId,
+            userId: userId,
+            type: .charin,
+            targetType: "request",
+            targetId: resultRequestId,
+            title: title,
+            iconEmoji: iconEmoji,
+            coinDelta: coinAmount,
+            piggyBankId: piggyBankId,
+            piggyBankName: piggyBankName,
+            balanceBefore: balanceBefore,
+            balanceAfter: balanceAfter,
+            status: .active,
+            createdAt: createdAt,
+            canceledAt: nil
+        )
+        return CharinResult(
+            record: record,
+            requestId: resultRequestId,
+            requestStatus: requestStatus,
+            completionCount: completionCount,
+            targetReward: targetReward
+        )
+    }
+
+    func cancelCharin(recordId: String) async throws -> CharinCancellationResult {
+        let response = try await functions.httpsCallable("cancelCharin").call(["recordId": recordId])
+        guard
+            let data = response.data as? [String: Any],
+            let resultRecordId = data["recordId"] as? String,
+            let requestId = data["requestId"] as? String,
+            let piggyBankId = data["piggyBankId"] as? String,
+            let balanceAfter = integer(data["balanceAfter"]),
+            let requestStatusValue = data["requestStatus"] as? String,
+            let requestStatus = RequestItem.Status(rawValue: requestStatusValue),
+            let completionCount = integer(data["completionCount"])
+        else { throw AppRepositoryError.invalidBackendResponse }
+        return CharinCancellationResult(
+            recordId: resultRecordId,
+            requestId: requestId,
+            piggyBankId: piggyBankId,
+            balanceAfter: balanceAfter,
+            requestStatus: requestStatus,
+            completionCount: completionCount
+        )
+    }
+
+    func observeGroupMemberCount(
+        groupId: String,
+        onChange: @escaping (Result<Int, Error>) -> Void
+    ) -> AppObservation {
+        let registration = firestore.collection("groups").document(groupId).addSnapshotListener { snapshot, error in
+            Task { @MainActor in
+                if let error {
+                    onChange(.failure(error))
+                    return
+                }
+                guard let snapshot, snapshot.exists else {
+                    onChange(.failure(AppRepositoryError.invalidBackendResponse))
+                    return
+                }
+                onChange(.success((snapshot.get("memberIds") as? [String])?.count ?? 0))
+            }
+        }
+        return AppObservation { registration.remove() }
     }
 
     func completeInviteForPreview() async throws {
@@ -207,6 +469,39 @@ final class FirebaseAppRepository: AppRepository {
         )
     }
 
+    private func mapUserProfile(_ snapshot: DocumentSnapshot) -> UserProfile {
+        let data = snapshot.data() ?? [:]
+        return UserProfile(
+            id: snapshot.documentID,
+            displayName: data["displayName"] as? String ?? "",
+            iconEmoji: data["iconEmoji"] as? String,
+            photoURL: (data["photoURL"] as? String).flatMap(URL.init(string:)),
+            email: data["email"] as? String,
+            activeGroupId: data["activeGroupId"] as? String,
+            createdAt: date(data["createdAt"]),
+            updatedAt: date(data["updatedAt"]),
+            deletedAt: optionalDate(data["deletedAt"])
+        )
+    }
+
+    private func mapInvite(_ snapshot: QueryDocumentSnapshot) throws -> Invite {
+        let data = snapshot.data()
+        guard let status = Invite.Status(rawValue: data["status"] as? String ?? "") else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        return Invite(
+            id: snapshot.documentID,
+            groupId: data["groupId"] as? String ?? "",
+            code: data["code"] as? String ?? "",
+            createdBy: data["createdBy"] as? String ?? "",
+            status: status,
+            expiresAt: date(data["expiresAt"]),
+            createdAt: date(data["createdAt"]),
+            usedAt: optionalDate(data["usedAt"]),
+            usedBy: data["usedBy"] as? String
+        )
+    }
+
     private func mapPiggyBank(_ snapshot: QueryDocumentSnapshot) throws -> PiggyBank {
         let data = snapshot.data()
         guard let ownerType = PiggyBank.OwnerType(rawValue: data["ownerType"] as? String ?? "") else {
@@ -248,6 +543,71 @@ final class FirebaseAppRepository: AppRepository {
             lastCompletedAt: optionalDate(data["lastCompletedAt"]),
             createdAt: date(data["createdAt"]),
             updatedAt: date(data["updatedAt"])
+        )
+    }
+
+    private func normalizedDraft(_ draft: RequestDraft) throws -> RequestDraft {
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let emoji = draft.iconEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !emoji.isEmpty, draft.coinAmount > 0 else {
+            throw AppRepositoryError.invalidRequest
+        }
+        return RequestDraft(
+            title: title,
+            iconEmoji: emoji,
+            coinAmount: draft.coinAmount,
+            piggyBankType: draft.piggyBankType,
+            repeatType: draft.repeatType
+        )
+    }
+
+    private func requestData(_ request: RequestItem) -> [String: Any] {
+        [
+            "groupId": request.groupId,
+            "createdBy": request.createdBy,
+            "title": request.title,
+            "iconEmoji": request.iconEmoji,
+            "coinAmount": request.coinAmount,
+            "piggyBankType": request.piggyBankType.rawValue,
+            "repeatType": request.repeatType.rawValue,
+            "status": request.status.rawValue,
+            "completionCount": request.completionCount,
+            "lastCompletedAt": request.lastCompletedAt.map(Timestamp.init(date:)) ?? NSNull(),
+            "createdAt": Timestamp(date: request.createdAt),
+            "updatedAt": Timestamp(date: request.updatedAt),
+        ]
+    }
+
+    private func integer(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        return (value as? NSNumber)?.intValue
+    }
+
+    private func mapRecord(_ snapshot: QueryDocumentSnapshot) throws -> ActivityRecord {
+        let data = snapshot.data()
+        guard
+            let type = ActivityRecord.RecordType(rawValue: data["type"] as? String ?? ""),
+            let status = ActivityRecord.Status(rawValue: data["status"] as? String ?? "")
+        else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        return ActivityRecord(
+            id: snapshot.documentID,
+            groupId: data["groupId"] as? String ?? "",
+            userId: data["userId"] as? String ?? "",
+            type: type,
+            targetType: data["targetType"] as? String ?? "",
+            targetId: data["targetId"] as? String ?? "",
+            title: data["title"] as? String ?? "きろく",
+            iconEmoji: data["iconEmoji"] as? String ?? "🪙",
+            coinDelta: data["coinDelta"] as? Int ?? 0,
+            piggyBankId: data["piggyBankId"] as? String ?? "",
+            piggyBankName: data["piggyBankName"] as? String ?? "貯金箱",
+            balanceBefore: data["balanceBefore"] as? Int ?? 0,
+            balanceAfter: data["balanceAfter"] as? Int ?? 0,
+            status: status,
+            createdAt: date(data["createdAt"]),
+            canceledAt: optionalDate(data["canceledAt"])
         )
     }
 

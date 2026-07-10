@@ -4,10 +4,14 @@ enum AppPhase: Equatable {
     case onboarding
     case authentication
     case emailRegistration
+    case emailLogin
+    case inviteCodeEntry
+    case inviteAcceptance
     case profile
     case template
     case invite
     case inviteWaiting
+    case charinCelebration
     case main
 }
 
@@ -23,51 +27,261 @@ final class AppState: ObservableObject {
     @Published private(set) var authenticatedUser: AuthUser?
     @Published private(set) var profile: UserProfile?
     @Published private(set) var initialTemplate: InitialTemplateResult?
+    @Published private(set) var passwordResetEmailSent = false
+    @Published private(set) var pendingInvite: InvitePreview?
+    @Published private(set) var partnerProfile: UserProfile?
+    @Published private(set) var records: [ActivityRecord] = []
+    @Published private(set) var activeCharin: CharinResult?
+    @Published private(set) var pendingCharinUndo: PendingCharinUndo?
 
     private let repository: any AppRepository
+    private let persistsPendingInvite: Bool
+    private let pendingInviteStorageKey = "pendingInvite"
+    private var partnerObservation: AppObservation?
 
     init(repository: (any AppRepository)? = nil) {
         if let repository {
             self.repository = repository
+            persistsPendingInvite = false
         } else if ProcessInfo.processInfo.arguments.contains("-useFirebase")
                     || ProcessInfo.processInfo.arguments.contains("-useFirebaseEmulator") {
             self.repository = FirebaseAppRepository()
+            persistsPendingInvite = true
         } else {
             self.repository = LocalAppRepository()
+            persistsPendingInvite = true
+        }
+        if persistsPendingInvite,
+           let data = UserDefaults.standard.data(forKey: pendingInviteStorageKey),
+           let storedInvite = try? JSONDecoder().decode(InvitePreview.self, from: data) {
+            pendingInvite = storedInvite
+            phase = .inviteAcceptance
         }
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if let index = arguments.firstIndex(of: "-previewPhase"), arguments.indices.contains(index + 1) {
             switch arguments[index + 1] {
             case "authentication": phase = .authentication
+            case "emailLogin": phase = .emailLogin
+            case "inviteCodeEntry": phase = .inviteCodeEntry
+            case "inviteAcceptance":
+                pendingInvite = InvitePreview(
+                    id: "invite-preview",
+                    code: "ABCD-1234",
+                    inviterName: "花男",
+                    inviterEmoji: "🌷",
+                    expiresAt: Date().addingTimeInterval(60 * 60 * 24)
+                )
+                phase = .inviteAcceptance
             case "profile": phase = .profile
-            case "inviteWaiting": phase = .inviteWaiting
-            case "main": phase = .main
+            case "inviteWaiting":
+                initialTemplate = Self.makePreviewTemplate()
+                phase = .inviteWaiting
+            case "charinCelebration":
+                let template = Self.makePreviewTemplate(joined: true)
+                let previewUser = AuthUser(id: "user-preview", email: "preview@example.com")
+                let previewProfile = Self.makePreviewProfile(id: "user-preview", name: "花男", emoji: "😊", groupId: template.group.id)
+                let previewRecords = Self.makePreviewRecords(groupId: template.group.id)
+                authenticatedUser = previewUser
+                profile = previewProfile
+                partnerProfile = Self.makePreviewProfile(id: "partner-preview", name: "花子", emoji: "🌷", groupId: template.group.id)
+                initialTemplate = template
+                records = previewRecords
+                if let record = previewRecords.first {
+                    activeCharin = CharinResult(
+                        record: record,
+                        requestId: record.targetId,
+                        requestStatus: .active,
+                        completionCount: 8,
+                        targetReward: TargetRewardProgress(
+                            id: "reward-coffee",
+                            title: "スタバごほうび券",
+                            iconEmoji: "☕️",
+                            remainingCoins: 180,
+                            isExchangeable: false,
+                            becameExchangeable: false
+                        )
+                    )
+                    pendingCharinUndo = PendingCharinUndo(recordId: record.id, expiresAt: Date().addingTimeInterval(30))
+                }
+                if let localRepository = self.repository as? LocalAppRepository {
+                    localRepository.seedPreview(user: previewUser, profile: previewProfile, template: template, records: previewRecords)
+                }
+                phase = .charinCelebration
+            case "main":
+                let template = Self.makePreviewTemplate(joined: true)
+                authenticatedUser = AuthUser(id: "user-preview", email: "preview@example.com")
+                profile = Self.makePreviewProfile(id: "user-preview", name: "花男", emoji: "😊", groupId: template.group.id)
+                partnerProfile = Self.makePreviewProfile(id: "partner-preview", name: "花子", emoji: "🌷", groupId: template.group.id)
+                initialTemplate = template
+                records = Self.makePreviewRecords(groupId: template.group.id)
+                if let localRepository = self.repository as? LocalAppRepository,
+                   let profile {
+                    localRepository.seedPreview(
+                        user: authenticatedUser!,
+                        profile: profile,
+                        template: template,
+                        records: records
+                    )
+                }
+                phase = .main
             default: break
             }
+        }
+        if let index = arguments.firstIndex(of: "-previewTab"), arguments.indices.contains(index + 1) {
+            switch arguments[index + 1] {
+            case "requests": selectedTab = 1
+            case "rewards": selectedTab = 2
+            case "records": selectedTab = 3
+            default: selectedTab = 0
+            }
+        }
+        if arguments.contains("-previewUndoToast"), let record = records.first {
+            pendingCharinUndo = PendingCharinUndo(recordId: record.id, expiresAt: Date().addingTimeInterval(30))
         }
         #endif
     }
 
     var inviteCode: String { initialTemplate?.invite.code ?? "準備中" }
 
+    var inviteURL: URL? {
+        guard let inviteId = initialTemplate?.invite.id else { return nil }
+        return URL(string: "https://onegai-charin-dev.web.app/invite/\(inviteId)")
+    }
+
+    private static func makePreviewTemplate(joined: Bool = false) -> InitialTemplateResult {
+        let now = Date()
+        let group = CoupleGroup(
+            id: "group-preview",
+            name: "花男とパートナー",
+            type: "couple",
+            status: .active,
+            memberIds: joined ? ["user-preview", "partner-preview"] : ["user-preview"],
+            createdBy: "user-preview",
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: nil
+        )
+        let invite = Invite(
+            id: "invite-preview",
+            groupId: group.id,
+            code: "ABCD-1234",
+            createdBy: "user-preview",
+            status: joined ? .used : .active,
+            expiresAt: now.addingTimeInterval(60 * 60 * 24),
+            createdAt: now,
+            usedAt: joined ? now : nil,
+            usedBy: joined ? "partner-preview" : nil
+        )
+        let rewards = [
+            Reward(id: "reward-coffee", groupId: group.id, createdBy: "user-preview", title: "スタバごほうび券", iconEmoji: "☕️", requiredCoins: 700, piggyBankType: .personal, isTarget: true, expiresInType: .none, expiresInDays: nil, expiresAt: nil, status: .active, createdAt: now, updatedAt: now),
+            Reward(id: "reward-yakiniku", groupId: group.id, createdBy: "user-preview", title: "焼肉デートごほうび券", iconEmoji: "🍖", requiredCoins: 5_000, piggyBankType: .shared, isTarget: true, expiresInType: .none, expiresInDays: nil, expiresAt: nil, status: .active, createdAt: now, updatedAt: now),
+        ]
+        let banks = [
+            PiggyBank(id: "bank-personal", groupId: group.id, ownerType: .personal, ownerUserId: "user-preview", name: "花男の貯金箱", balance: 520, targetRewardId: "reward-coffee", status: .active, createdAt: now, updatedAt: now),
+            PiggyBank(id: "bank-shared", groupId: group.id, ownerType: .shared, ownerUserId: nil, name: "ふたりの貯金箱", balance: 2_800, targetRewardId: "reward-yakiniku", status: .active, createdAt: now, updatedAt: now),
+        ]
+        let requests = [
+            RequestItem(id: "request-massage", groupId: group.id, createdBy: "user-preview", title: "マッサージ10分", iconEmoji: "💆", coinAmount: 100, piggyBankType: .personal, repeatType: .repeatable, status: .active, completionCount: 8, lastCompletedAt: now, createdAt: now, updatedAt: now),
+            RequestItem(id: "request-dishes", groupId: group.id, createdBy: "user-preview", title: "皿洗い", iconEmoji: "🧽", coinAmount: 50, piggyBankType: .personal, repeatType: .repeatable, status: .active, completionCount: 5, lastCompletedAt: now, createdAt: now, updatedAt: now),
+            RequestItem(id: "request-clean", groupId: group.id, createdBy: "user-preview", title: "ふたりで部屋を片付ける", iconEmoji: "🧹", coinAmount: 200, piggyBankType: .shared, repeatType: .repeatable, status: .active, completionCount: 4, lastCompletedAt: now, createdAt: now, updatedAt: now),
+            RequestItem(id: "request-date", groupId: group.id, createdBy: "partner-preview", title: "デートの予定を決める", iconEmoji: "🥢", coinAmount: 300, piggyBankType: .shared, repeatType: .repeatable, status: .active, completionCount: 2, lastCompletedAt: now, createdAt: now, updatedAt: now),
+        ]
+        return InitialTemplateResult(group: group, piggyBanks: banks, requests: requests, rewards: rewards, invite: invite)
+    }
+
+    private static func makePreviewProfile(id: String, name: String, emoji: String, groupId: String) -> UserProfile {
+        let now = Date()
+        return UserProfile(id: id, displayName: name, iconEmoji: emoji, photoURL: nil, email: nil, activeGroupId: groupId, createdAt: now, updatedAt: now, deletedAt: nil)
+    }
+
+    private static func makePreviewRecords(groupId: String) -> [ActivityRecord] {
+        let now = Date()
+        return [
+            ActivityRecord(id: "record-massage", groupId: groupId, userId: "partner-preview", type: .charin, targetType: "request", targetId: "request-massage", title: "マッサージ10分", iconEmoji: "💆", coinDelta: 100, piggyBankId: "bank-personal", piggyBankName: "花男の貯金箱", balanceBefore: 420, balanceAfter: 520, status: .active, createdAt: now.addingTimeInterval(-3_600), canceledAt: nil),
+            ActivityRecord(id: "record-clean", groupId: groupId, userId: "user-preview", type: .charin, targetType: "request", targetId: "request-clean", title: "ふたりで部屋を片付ける", iconEmoji: "🧹", coinDelta: 200, piggyBankId: "bank-shared", piggyBankName: "ふたりの貯金箱", balanceBefore: 2_600, balanceAfter: 2_800, status: .active, createdAt: now.addingTimeInterval(-7_200), canceledAt: nil),
+        ]
+    }
+
     func signIn(with provider: AuthenticationProvider) async {
         await perform {
-            authenticatedUser = try await repository.signIn(with: provider)
-            phase = .profile
+            let user = try await repository.signIn(with: provider)
+            try await restoreSession(for: user)
         }
     }
 
     func register(email: String, password: String) async {
         await perform {
-            authenticatedUser = try await repository.register(email: email, password: password)
-            phase = .profile
+            let user = try await repository.register(email: email, password: password)
+            try await restoreSession(for: user)
+        }
+    }
+
+    func signIn(email: String, password: String) async {
+        await perform {
+            let user = try await repository.signIn(email: email, password: password)
+            try await restoreSession(for: user)
+        }
+    }
+
+    func sendPasswordReset(email: String) async {
+        passwordResetEmailSent = false
+        await perform {
+            try await repository.sendPasswordReset(email: email)
+            passwordResetEmailSent = true
         }
     }
 
     func saveProfile() async {
         await perform {
             profile = try await repository.saveProfile(displayName: displayName, iconEmoji: selectedEmoji)
+            if pendingInvite != nil {
+                try await acceptPendingInvite()
+            } else {
+                phase = .template
+            }
+        }
+    }
+
+    func resolveInvite(code: String) async {
+        await resolveInvite(identifier: code)
+    }
+
+    func handleIncomingURL(_ url: URL) async {
+        guard let identifier = inviteIdentifier(from: url) else { return }
+        await resolveInvite(identifier: identifier)
+    }
+
+    func beginInviteAcceptance() async {
+        guard pendingInvite != nil else { return }
+        guard authenticatedUser != nil else {
+            phase = .authentication
+            return
+        }
+        guard profile != nil else {
+            phase = .profile
+            return
+        }
+        await perform {
+            try await acceptPendingInvite()
+        }
+    }
+
+    func cancelPendingInvite() {
+        pendingInvite = nil
+        persistPendingInvite()
+        clearError()
+        guard authenticatedUser != nil else {
+            phase = .authentication
+            return
+        }
+        guard profile != nil else {
+            phase = .profile
+            return
+        }
+        if let template = initialTemplate {
+            phase = template.group.memberIds.count >= 2 ? .main : .inviteWaiting
+        } else {
             phase = .template
         }
     }
@@ -82,7 +296,6 @@ final class AppState: ObservableObject {
     func completeInviteForPreview() async {
         await perform {
             try await repository.completeInviteForPreview()
-            phase = .main
         }
     }
 
@@ -100,19 +313,215 @@ final class AppState: ObservableObject {
         }
     }
 
-    func clearError() {
-        errorMessage = nil
+    func createRequest(_ draft: RequestDraft) async -> Bool {
+        await perform {
+            let request = try await repository.createRequest(draft)
+            replaceRequest(request)
+        }
     }
 
-    private func perform(_ operation: () async throws -> Void) async {
-        guard !isProcessing else { return }
+    func updateRequest(_ request: RequestItem, draft: RequestDraft) async -> Bool {
+        await perform {
+            let updated = try await repository.updateRequest(request, draft: draft)
+            replaceRequest(updated)
+        }
+    }
+
+    func hideRequest(_ request: RequestItem) async -> Bool {
+        await perform {
+            let hidden = try await repository.hideRequest(request)
+            replaceRequest(hidden)
+        }
+    }
+
+    func charin(_ request: RequestItem) async -> Bool {
+        await perform {
+            let result = try await repository.charinRequest(groupId: request.groupId, requestId: request.id)
+            applyCharin(result)
+            activeCharin = result
+            pendingCharinUndo = PendingCharinUndo(
+                recordId: result.record.id,
+                expiresAt: result.record.createdAt.addingTimeInterval(30)
+            )
+            phase = .charinCelebration
+        }
+    }
+
+    func finishCharinCelebration() {
+        guard phase == .charinCelebration else { return }
+        activeCharin = nil
+        selectedTab = 0
+        phase = .main
+    }
+
+    func cancelLatestCharin() async -> Bool {
+        guard let pendingCharinUndo, pendingCharinUndo.expiresAt > Date() else {
+            self.pendingCharinUndo = nil
+            return false
+        }
+        return await perform {
+            let result = try await repository.cancelCharin(recordId: pendingCharinUndo.recordId)
+            applyCharinCancellation(result)
+            self.pendingCharinUndo = nil
+            activeCharin = nil
+            if phase == .charinCelebration {
+                selectedTab = 0
+                phase = .main
+            }
+        }
+    }
+
+    func expireCharinUndoIfNeeded(at date: Date = Date()) {
+        if let pendingCharinUndo, pendingCharinUndo.expiresAt <= date {
+            self.pendingCharinUndo = nil
+        }
+    }
+
+    func piggyBank(for request: RequestItem) -> PiggyBank? {
+        initialTemplate?.piggyBanks.first { bank in
+            guard bank.status == .active, bank.ownerType == request.piggyBankType else { return false }
+            return bank.ownerType == .shared || bank.ownerUserId == request.createdBy
+        }
+    }
+
+    func targetReward(for bank: PiggyBank) -> Reward? {
+        initialTemplate?.rewards.first { $0.id == bank.targetRewardId && $0.status == .active }
+    }
+
+    func startObservingInviteCompletion() {
+        guard partnerObservation == nil, let groupId = initialTemplate?.group.id else { return }
+        partnerObservation = repository.observeGroupMemberCount(groupId: groupId) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let memberCount) where memberCount >= 2:
+                stopObservingInviteCompletion()
+                Task { await self.refreshAfterPartnerJoined() }
+            case .success:
+                break
+            case .failure(let error):
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func stopObservingInviteCompletion() {
+        partnerObservation?.cancel()
+        partnerObservation = nil
+    }
+
+    func signOut() async {
+        await perform {
+            stopObservingInviteCompletion()
+            try await repository.signOut()
+            reset()
+        }
+    }
+
+    func clearError() {
+        errorMessage = nil
+        passwordResetEmailSent = false
+    }
+
+    private func restoreSession(for user: AuthUser) async throws {
+        authenticatedUser = user
+        let session = try await repository.loadSession()
+        profile = session.profile
+        initialTemplate = session.initialTemplate
+        partnerProfile = session.partnerProfile
+        records = session.records
+        displayName = session.profile?.displayName ?? ""
+        selectedEmoji = session.profile?.iconEmoji
+
+        if pendingInvite != nil {
+            guard session.profile != nil else {
+                phase = .profile
+                return
+            }
+            try await acceptPendingInvite()
+            return
+        }
+
+        guard session.profile != nil else {
+            phase = .profile
+            return
+        }
+        guard let template = session.initialTemplate else {
+            phase = .template
+            return
+        }
+        phase = template.group.memberIds.count >= 2 ? .main : .inviteWaiting
+    }
+
+    private func resolveInvite(identifier: String) async {
+        await perform {
+            pendingInvite = try await repository.resolveInvite(identifier: identifier)
+            persistPendingInvite()
+            phase = .inviteAcceptance
+        }
+    }
+
+    private func acceptPendingInvite() async throws {
+        guard let pendingInvite else { throw AppRepositoryError.inviteUnavailable }
+        try await repository.acceptInvite(id: pendingInvite.id)
+        let session = try await repository.loadSession()
+        profile = session.profile
+        initialTemplate = session.initialTemplate
+        partnerProfile = session.partnerProfile
+        records = session.records
+        self.pendingInvite = nil
+        persistPendingInvite()
+        phase = .main
+    }
+
+    private func refreshAfterPartnerJoined() async {
+        await perform {
+            let session = try await repository.loadSession()
+            profile = session.profile
+            initialTemplate = session.initialTemplate
+            partnerProfile = session.partnerProfile
+            records = session.records
+            phase = .main
+        }
+    }
+
+    private func persistPendingInvite() {
+        guard persistsPendingInvite else { return }
+        if let pendingInvite, let data = try? JSONEncoder().encode(pendingInvite) {
+            UserDefaults.standard.set(data, forKey: pendingInviteStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: pendingInviteStorageKey)
+        }
+    }
+
+    private func inviteIdentifier(from url: URL) -> String? {
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        if let value = components?.queryItems?.first(where: { $0.name == "code" || $0.name == "invite" })?.value,
+           !value.isEmpty {
+            return value
+        }
+        let pathParts = url.pathComponents.filter { $0 != "/" }
+        if url.host == "invite", let first = pathParts.first {
+            return first
+        }
+        if let inviteIndex = pathParts.firstIndex(of: "invite"), pathParts.indices.contains(inviteIndex + 1) {
+            return pathParts[inviteIndex + 1]
+        }
+        return nil
+    }
+
+    @discardableResult
+    private func perform(_ operation: () async throws -> Void) async -> Bool {
+        guard !isProcessing else { return false }
         isProcessing = true
         errorMessage = nil
+        passwordResetEmailSent = false
         defer { isProcessing = false }
         do {
             try await operation()
+            return true
         } catch is CancellationError {
             errorMessage = nil
+            return false
         } catch {
             if let description = (error as? LocalizedError)?.errorDescription {
                 errorMessage = description
@@ -123,7 +532,78 @@ final class AppState: ObservableObject {
                 errorMessage = "通信に失敗しました。もう一度お試しください。"
                 #endif
             }
+            return false
         }
+    }
+
+    private func replaceRequest(_ request: RequestItem) {
+        guard let current = initialTemplate else { return }
+        var requests = current.requests.filter { $0.id != request.id }
+        requests.append(request)
+        initialTemplate = InitialTemplateResult(
+            group: current.group,
+            piggyBanks: current.piggyBanks,
+            requests: requests,
+            rewards: current.rewards,
+            invite: current.invite
+        )
+    }
+
+    private func applyCharin(_ result: CharinResult) {
+        guard let current = initialTemplate else { return }
+        let banks = current.piggyBanks.map { bank -> PiggyBank in
+            guard bank.id == result.record.piggyBankId else { return bank }
+            var updated = bank
+            updated.balance = result.record.balanceAfter
+            updated.updatedAt = result.record.createdAt
+            return updated
+        }
+        let requests = current.requests.map { request -> RequestItem in
+            guard request.id == result.requestId else { return request }
+            var updated = request
+            updated.status = result.requestStatus
+            updated.completionCount = result.completionCount
+            updated.lastCompletedAt = result.record.createdAt
+            updated.updatedAt = result.record.createdAt
+            return updated
+        }
+        initialTemplate = InitialTemplateResult(
+            group: current.group,
+            piggyBanks: banks,
+            requests: requests,
+            rewards: current.rewards,
+            invite: current.invite
+        )
+        records.removeAll { $0.id == result.record.id }
+        records.insert(result.record, at: 0)
+    }
+
+    private func applyCharinCancellation(_ result: CharinCancellationResult) {
+        guard let current = initialTemplate else { return }
+        let now = Date()
+        let banks = current.piggyBanks.map { bank -> PiggyBank in
+            guard bank.id == result.piggyBankId else { return bank }
+            var updated = bank
+            updated.balance = result.balanceAfter
+            updated.updatedAt = now
+            return updated
+        }
+        let requests = current.requests.map { request -> RequestItem in
+            guard request.id == result.requestId else { return request }
+            var updated = request
+            updated.status = result.requestStatus
+            updated.completionCount = result.completionCount
+            updated.updatedAt = now
+            return updated
+        }
+        initialTemplate = InitialTemplateResult(
+            group: current.group,
+            piggyBanks: banks,
+            requests: requests,
+            rewards: current.rewards,
+            invite: current.invite
+        )
+        records.removeAll { $0.id == result.recordId }
     }
 
     func advanceOnboarding() {
@@ -135,6 +615,7 @@ final class AppState: ObservableObject {
     }
 
     func reset() {
+        stopObservingInviteCompletion()
         onboardingPage = 0
         displayName = ""
         selectedEmoji = nil
@@ -143,6 +624,13 @@ final class AppState: ObservableObject {
         authenticatedUser = nil
         profile = nil
         initialTemplate = nil
+        partnerProfile = nil
+        records = []
+        activeCharin = nil
+        pendingCharinUndo = nil
+        pendingInvite = nil
+        persistPendingInvite()
+        passwordResetEmailSent = false
         phase = .authentication
     }
 }

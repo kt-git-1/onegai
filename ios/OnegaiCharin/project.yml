@@ -48,6 +48,8 @@ targets:
       properties:
         com.apple.developer.applesignin:
           - Default
+        com.apple.developer.associated-domains:
+          - applinks:onegai-charin-dev.web.app
     info:
       path: OnegaiCharin/Info.plist
       properties:
@@ -56,6 +58,7 @@ targets:
           - CFBundleTypeRole: Editor
             CFBundleURLSchemes:
               - com.googleusercontent.apps.45672319132-lmsft5k7ph9775g2r35apm3ah94tqdtc
+              - onegaicharin
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchScreen: {}

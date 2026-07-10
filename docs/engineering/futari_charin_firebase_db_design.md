@@ -15,10 +15,12 @@
 
 - Firebase project ID: `onegai-charin-dev`
 - iOS bundle ID: `com.kaito.onegaicharin`
+- Apple Developer Team ID: `QSZR732YXD`
 - Firestore location: `asia-northeast1`
 - Cloud Functions region: `asia-northeast1`
 - Cloud Functions runtime: Node.js 22
 - 本番用Firebaseプロジェクトは開発用と分離し、リリース準備時に作成する
+- Firebase Authenticationのメール / Google / Appleプロバイダーを有効化済み
 - 課金は行わない。Cloud Functionsのクラウドデプロイは対象外とし、開発中はEmulator Suiteで検証する
 - TestFlight以降でFunctions相当の処理を提供する方法は、無料枠で運用できる別構成を含めて実装前に決定する
 
@@ -413,6 +415,19 @@ MVPでは主に `unused / used`。
 - 再発行時は、同一groupの既存active inviteを `revoked` にしてから新しいinviteを作成する。
 - クライアント側の表示だけで期限を延長せず、サーバー側で新しいcodeとexpiresAtを発行する。
 - 二重発行を避けるため、既存inviteの無効化と新規作成はTransactionまたは同等の原子的処理で行う。
+
+### 招待参加ルール
+
+- 招待リンクは `https://onegai-charin-dev.web.app/invite/{inviteId}` 形式のUniversal Linkとする。
+- AASAはFirebase Hostingの `/.well-known/apple-app-site-association` から配信する。
+- アプリ未インストール時はFirebase Hostingの招待案内ページを表示する。
+- 招待リンクまたは招待コードの照合時点では、groupへの参加を確定しない。
+- 認証前は招待元と招待内容の確認に必要な最小限の情報だけを返す。
+- クライアントは対象inviteを登録 / ログインとプロフィール設定の間も保留状態として保持する。
+- 認証と必須プロフィール設定の完了後、認証済みuidで参加処理を実行する。
+- 参加処理ではinviteが `active`、期限内、未使用であり、対象groupが2人未満であることをサーバー側で再検証する。
+- member追加、userのactiveGroupId更新、inviteの `used` 更新はTransactionまたは同等の原子的処理で行う。
+- 参加成功後はホームへ遷移し、招待された側ではテンプレート作成と新規invite発行を行わない。
 
 ---
 

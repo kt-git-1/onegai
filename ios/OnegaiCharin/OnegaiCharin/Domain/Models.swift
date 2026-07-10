@@ -5,6 +5,25 @@ struct AuthUser: Equatable, Sendable {
     let email: String?
 }
 
+struct AppSession: Equatable, Sendable {
+    let profile: UserProfile?
+    let initialTemplate: InitialTemplateResult?
+    let partnerProfile: UserProfile?
+    let records: [ActivityRecord]
+
+    init(
+        profile: UserProfile?,
+        initialTemplate: InitialTemplateResult?,
+        partnerProfile: UserProfile? = nil,
+        records: [ActivityRecord] = []
+    ) {
+        self.profile = profile
+        self.initialTemplate = initialTemplate
+        self.partnerProfile = partnerProfile
+        self.records = records
+    }
+}
+
 struct UserProfile: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var displayName: String
@@ -66,6 +85,14 @@ struct RequestItem: Identifiable, Codable, Equatable, Sendable {
     var updatedAt: Date
 }
 
+struct RequestDraft: Equatable, Sendable {
+    var title: String
+    var iconEmoji: String
+    var coinAmount: Int
+    var piggyBankType: PiggyBank.OwnerType
+    var repeatType: RequestItem.RepeatType
+}
+
 struct Reward: Identifiable, Codable, Equatable, Sendable {
     enum ExpiryType: String, Codable, Sendable { case none, days, date }
     enum Status: String, Codable, Sendable { case active, hidden, deleted }
@@ -86,6 +113,59 @@ struct Reward: Identifiable, Codable, Equatable, Sendable {
     var updatedAt: Date
 }
 
+struct ActivityRecord: Identifiable, Codable, Equatable, Sendable {
+    enum RecordType: String, Codable, Sendable { case charin, rewardExchange, ticketUsed }
+    enum Status: String, Codable, Sendable { case active, canceled }
+
+    let id: String
+    let groupId: String
+    let userId: String
+    let type: RecordType
+    let targetType: String
+    let targetId: String
+    let title: String
+    let iconEmoji: String
+    let coinDelta: Int
+    let piggyBankId: String
+    let piggyBankName: String
+    let balanceBefore: Int
+    let balanceAfter: Int
+    let status: Status
+    let createdAt: Date
+    let canceledAt: Date?
+}
+
+struct TargetRewardProgress: Equatable, Sendable {
+    let id: String
+    let title: String
+    let iconEmoji: String
+    let remainingCoins: Int
+    let isExchangeable: Bool
+    let becameExchangeable: Bool
+}
+
+struct CharinResult: Equatable, Sendable {
+    let record: ActivityRecord
+    let requestId: String
+    let requestStatus: RequestItem.Status
+    let completionCount: Int
+    let targetReward: TargetRewardProgress?
+}
+
+struct CharinCancellationResult: Equatable, Sendable {
+    let recordId: String
+    let requestId: String
+    let piggyBankId: String
+    let balanceAfter: Int
+    let requestStatus: RequestItem.Status
+    let completionCount: Int
+}
+
+struct PendingCharinUndo: Equatable, Sendable {
+    let recordId: String
+    let expiresAt: Date
+}
+
 struct Invite: Identifiable, Codable, Equatable, Sendable {
     enum Status: String, Codable, Sendable { case active, used, expired, revoked }
 
@@ -100,6 +180,14 @@ struct Invite: Identifiable, Codable, Equatable, Sendable {
     var usedBy: String?
 
     var isExpired: Bool { status == .expired || expiresAt <= Date() }
+}
+
+struct InvitePreview: Identifiable, Codable, Equatable, Sendable {
+    let id: String
+    let code: String
+    let inviterName: String
+    let inviterEmoji: String?
+    let expiresAt: Date
 }
 
 struct InitialTemplateResult: Equatable, Sendable {

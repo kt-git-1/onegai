@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fff8e9">
+  <title>おねがいチャリンに招待されました</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+      color: #4b2f22;
+      background: #fff8e9;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100svh; display: grid; place-items: center; padding: 32px 20px; }
+    main { width: min(100%, 440px); text-align: center; }
+    img { width: 172px; height: 161px; object-fit: contain; }
+    h1 { margin: 24px 0 12px; font-size: 26px; line-height: 1.4; letter-spacing: 0; }
+    p { margin: 0; color: #8b7469; font-size: 15px; line-height: 1.8; }
+    a {
+      display: grid;
+      place-items: center;
+      width: 100%;
+      min-height: 54px;
+      margin-top: 32px;
+      border-radius: 8px;
+      color: #4b2f22;
+      background: #ffbc3b;
+      font-size: 16px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    small { display: block; margin-top: 14px; color: #a18c82; font-size: 12px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/assets/piggy-bank.png" alt="おねがいチャリン">
+    <h1>おねがいチャリンに<br>招待されました</h1>
+    <p>アプリを開いて、ふたりの貯金箱を始めましょう。</p>
+    <a id="open-app" href="#">アプリを開く</a>
+    <small>アプリが開かない場合は、最新版をインストールしてからもう一度お試しください。</small>
+  </main>
+  <script>
+    const parts = location.pathname.split("/").filter(Boolean);
+    const inviteId = parts[0] === "invite" ? parts[1] : "";
+    const button = document.querySelector("#open-app");
+    if (inviteId) {
+      button.href = `onegaicharin://invite/${encodeURIComponent(inviteId)}`;
+    } else {
+      button.hidden = true;
+    }
+  </script>
+</body>
+</html>

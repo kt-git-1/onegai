@@ -61,7 +61,7 @@ struct AuthenticationView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer().frame(height: 34)
+            Spacer().frame(height: 62)
             MascotView(size: .authentication)
                 .padding(.bottom, 26)
             Text("おねがいチャリン")
@@ -70,6 +70,17 @@ struct AuthenticationView: View {
                 .font(.system(size: 14))
                 .foregroundStyle(Color.appSecondary)
                 .padding(.top, 8)
+
+            if let invite = appState.pendingInvite {
+                Text("\(invite.inviterName)さんの招待に参加します")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.appHeart)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 36)
+                    .background(Color.appPrimarySoft)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(.top, 18)
+            }
 
             Spacer()
 
@@ -90,10 +101,19 @@ struct AuthenticationView: View {
                     .buttonStyle(PrimaryButtonStyle())
 
                 Button("すでにアカウントをお持ちの方はログイン") {
-                    Task { await appState.signIn(with: .apple) }
+                    appState.clearError()
+                    appState.phase = .emailLogin
                 }
                 .font(.system(size: 14))
                 .foregroundStyle(Color.appSecondary)
+                .frame(minHeight: 44)
+
+                Button("招待コードを入力") {
+                    appState.clearError()
+                    appState.phase = .inviteCodeEntry
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.appHeart)
                 .frame(minHeight: 44)
 
                 Text("利用規約 ・ プライバシーポリシー")
