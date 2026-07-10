@@ -525,7 +525,7 @@ Push通知用。
 1. record取得
 2. type = charin であること
 3. userId が本人であること
-4. createdAtから30秒以内であること
+4. createdAtから10秒以内であること
 5. status activeであること
 6. Transactionで piggyBank.balance を戻す
 7. record.status = canceled

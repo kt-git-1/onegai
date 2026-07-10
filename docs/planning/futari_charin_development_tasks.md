@@ -134,7 +134,7 @@ Firebase接続前に、まず画面を作る。
 - [x] ちゃりん確認ダイアログ
 - [x] charinRequest Function連携
 - [x] ちゃりん演出
-- [x] 30秒取り消し
+- [x] 10秒取り消し
 - [x] ホーム遷移後の取り消しトースト継続
 - [x] cancelCharin Function連携
 

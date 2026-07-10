@@ -17,6 +17,7 @@ enum AppPhase: Equatable {
 
 @MainActor
 final class AppState: ObservableObject {
+    private static let charinUndoDuration: TimeInterval = 10
     @Published var phase: AppPhase = .onboarding
     @Published var onboardingPage = 0
     @Published var displayName = ""
@@ -87,22 +88,25 @@ final class AppState: ObservableObject {
                 partnerProfile = Self.makePreviewProfile(id: "partner-preview", name: "花子", emoji: "🌷", groupId: template.group.id)
                 initialTemplate = template
                 records = previewRecords
-                if let record = previewRecords.first {
+                let previewRecord = arguments.contains("-previewSharedBank") ?
+                    previewRecords.first(where: { $0.piggyBankId == "bank-shared" }) : previewRecords.first
+                if let record = previewRecord {
+                    let shared = record.piggyBankId == "bank-shared"
                     activeCharin = CharinResult(
                         record: record,
                         requestId: record.targetId,
                         requestStatus: .active,
-                        completionCount: 8,
+                        completionCount: shared ? 4 : 8,
                         targetReward: TargetRewardProgress(
-                            id: "reward-coffee",
-                            title: "スタバごほうび券",
-                            iconEmoji: "☕️",
-                            remainingCoins: 180,
+                            id: shared ? "reward-yakiniku" : "reward-coffee",
+                            title: shared ? "焼肉デートごほうび券" : "スタバごほうび券",
+                            iconEmoji: shared ? "🍖" : "☕️",
+                            remainingCoins: shared ? 2_200 : 180,
                             isExchangeable: false,
                             becameExchangeable: false
                         )
                     )
-                    pendingCharinUndo = PendingCharinUndo(recordId: record.id, expiresAt: Date().addingTimeInterval(30))
+                    pendingCharinUndo = PendingCharinUndo(recordId: record.id, expiresAt: Date().addingTimeInterval(Self.charinUndoDuration))
                 }
                 if let localRepository = self.repository as? LocalAppRepository {
                     localRepository.seedPreview(user: previewUser, profile: previewProfile, template: template, records: previewRecords)
@@ -137,7 +141,7 @@ final class AppState: ObservableObject {
             }
         }
         if arguments.contains("-previewUndoToast"), let record = records.first {
-            pendingCharinUndo = PendingCharinUndo(recordId: record.id, expiresAt: Date().addingTimeInterval(30))
+            pendingCharinUndo = PendingCharinUndo(recordId: record.id, expiresAt: Date().addingTimeInterval(Self.charinUndoDuration))
         }
         #endif
     }
@@ -341,7 +345,7 @@ final class AppState: ObservableObject {
             activeCharin = result
             pendingCharinUndo = PendingCharinUndo(
                 recordId: result.record.id,
-                expiresAt: result.record.createdAt.addingTimeInterval(30)
+                expiresAt: result.record.createdAt.addingTimeInterval(Self.charinUndoDuration)
             )
             phase = .charinCelebration
         }

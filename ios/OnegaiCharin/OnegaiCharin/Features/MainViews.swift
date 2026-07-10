@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct MainTabView: View {
     @EnvironmentObject private var appState: AppState
@@ -702,33 +703,93 @@ struct CharinConfirmationSheet: View {
 
 struct CharinCelebrationView: View {
     @EnvironmentObject private var appState: AppState
-    @State private var coinOffset: CGFloat = -36
+    @State private var coinOffset: CGFloat = -58
     @State private var coinScale: CGFloat = 0.72
     @State private var coinOpacity = 1.0
+    @State private var pigScale = 1.0
+    @State private var glowOpacity = 0.0
+    @State private var burstProgress: CGFloat = 0
+    @State private var burstOpacity = 0.0
+    @State private var flashOpacity = 0.0
+    @State private var titleScale = 0.94
+    @State private var balanceScale = 0.94
+
+    private var isShared: Bool {
+        guard let bankId = appState.activeCharin?.record.piggyBankId else { return false }
+        return appState.initialTemplate?.piggyBanks.first { $0.id == bankId }?.ownerType == .shared
+    }
+
+    private var pigImageName: String {
+        isShared ? "CharinDoublePiggyBank" : "CharinSinglePiggyBank"
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.appBackground.ignoresSafeArea()
+            Color.appPrimary.opacity(flashOpacity).ignoresSafeArea()
 
             if let result = appState.activeCharin {
                 VStack(spacing: 16) {
                     Spacer()
                     ZStack(alignment: .top) {
-                        MascotView(size: .result)
-                            .padding(.top, 34)
-                        CharinCoinView()
-                            .offset(y: coinOffset)
-                            .scaleEffect(coinScale)
-                            .opacity(coinOpacity)
+                        CelebrationBurst(progress: burstProgress, isShared: isShared)
+                            .frame(width: 360, height: 270)
+                            .padding(.top, 18)
+                            .opacity(burstOpacity)
+                        Circle()
+                            .fill(Color.appPrimary.opacity(glowOpacity))
+                            .frame(width: isShared ? 300 : 230, height: isShared ? 190 : 230)
+                            .blur(radius: 22)
+                            .padding(.top, 32)
+                        Image(pigImageName)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: isShared ? 310 : 220)
+                            .scaleEffect(pigScale)
+                            .brightness(glowOpacity * 0.08)
+                            .shadow(color: Color.appPrimary.opacity(glowOpacity), radius: 18)
+                            .padding(.top, 42)
+                        if isShared {
+                            ForEach([-65.0, 58.0], id: \.self) { xOffset in
+                                CharinCoinView()
+                                    .offset(x: xOffset, y: coinOffset)
+                                    .scaleEffect(coinScale)
+                                    .opacity(coinOpacity)
+                            }
+                        } else {
+                            CharinCoinView()
+                                .offset(x: 7, y: coinOffset)
+                                .scaleEffect(coinScale)
+                                .opacity(coinOpacity)
+                        }
                     }
+                    .frame(height: 270)
 
                     Text("ちゃりん！")
                         .font(.system(size: 34, weight: .bold))
                         .foregroundStyle(Color.appHeart)
-                    Text("+\(result.record.coinDelta)コイン")
-                        .font(.system(size: 24, weight: .bold))
-                    Text("\(result.record.balanceBefore) → \(result.record.balanceAfter)")
-                        .font(.system(size: 22, weight: .semibold))
+                        .scaleEffect(titleScale)
+                        .shadow(color: Color.appHeart.opacity(glowOpacity * 0.55), radius: 8)
+
+                    VStack(spacing: 3) {
+                        Text("現在の残高")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.appSecondary)
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Text("\(result.record.balanceAfter)")
+                                .font(.system(size: 44, weight: .bold, design: .rounded))
+                                .contentTransition(.numericText())
+                            Text("コイン")
+                                .font(.system(size: 20, weight: .bold))
+                        }
+                        .foregroundStyle(Color.appText)
+                        Text("\(result.record.balanceBefore)コインから  +\(result.record.coinDelta)コイン")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color.appHeart)
+                    }
+                    .scaleEffect(balanceScale)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("charin-current-balance")
 
                     if let reward = result.targetReward {
                         Text(reward.becameExchangeable ?
@@ -743,27 +804,131 @@ struct CharinCelebrationView: View {
                 .padding(.bottom, 82)
             }
 
-            if let pending = appState.pendingCharinUndo {
-                CharinUndoToast(pending: pending)
-                    .padding(16)
-            }
         }
         .task {
             withAnimation(.spring(response: 0.55, dampingFraction: 0.58)) {
-                coinOffset = 2
+                coinOffset = 29
                 coinScale = 1
             }
             #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-holdCharinCoin") { return }
+            if ProcessInfo.processInfo.arguments.contains("-holdCharinBurst") {
+                coinOpacity = 0
+                pigScale = 1.06
+                glowOpacity = 0.58
+                burstProgress = 0.5
+                burstOpacity = 1
+                flashOpacity = 0.1
+                titleScale = 1.08
+                balanceScale = 1.06
+                return
+            }
+            if ProcessInfo.processInfo.arguments.contains("-holdCharinGlow") {
+                coinOpacity = 0
+                pigScale = 1.06
+                glowOpacity = 0.78
+                return
+            }
             if ProcessInfo.processInfo.arguments.contains("-holdCharinCelebration") {
                 coinOpacity = 0
                 return
             }
             #endif
             try? await Task.sleep(for: .milliseconds(520))
-            withAnimation(.easeOut(duration: 0.18)) { coinOpacity = 0 }
-            try? await Task.sleep(for: .milliseconds(1_080))
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            withAnimation(.easeOut(duration: 0.16)) {
+                coinOpacity = 0
+                pigScale = 1.06
+                glowOpacity = 0.78
+                flashOpacity = 0.16
+                titleScale = 1.08
+                balanceScale = 1.06
+            }
+            burstOpacity = 1
+            // Commit one visible frame before the burst starts fading outward.
+            try? await Task.sleep(for: .milliseconds(24))
+            withAnimation(.easeOut(duration: 0.65)) { burstProgress = 1 }
+            try? await Task.sleep(for: .milliseconds(190))
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.7)) {
+                pigScale = 1
+                glowOpacity = 0
+                flashOpacity = 0
+                titleScale = 1
+                balanceScale = 1
+            }
+            try? await Task.sleep(for: .milliseconds(1_290))
             appState.finishCharinCelebration()
         }
+    }
+}
+
+private struct CelebrationBurst: View {
+    let progress: CGFloat
+    let isShared: Bool
+    private let colors: [Color] = [.appPrimary, .appHeart, .appAccent, .appSuccess]
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<16, id: \.self) { index in
+                BurstConfettiPiece(
+                    index: index,
+                    progress: progress,
+                    color: colors[index % colors.count],
+                    isShared: isShared
+                )
+            }
+
+            ForEach(0..<4, id: \.self) { index in
+                BurstSymbol(
+                    index: index,
+                    progress: progress,
+                    color: colors[(index + 1) % colors.count],
+                    isShared: isShared
+                )
+            }
+        }
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+}
+
+private struct BurstConfettiPiece: View {
+    let index: Int
+    let progress: CGFloat
+    let color: Color
+    let isShared: Bool
+
+    var body: some View {
+        let angle = Double(index) * (2 * Double.pi / 16) - (Double.pi / 2)
+        let radius: CGFloat = isShared ? 150 + 90 * progress : 100 + 100 * progress
+        let opacity = Double(1 - progress)
+        Capsule()
+            .fill(color)
+            .frame(width: index.isMultiple(of: 3) ? 7 : 5, height: index.isMultiple(of: 2) ? 20 : 14)
+            .rotationEffect(.radians(angle + Double(progress) * 1.2))
+            .offset(x: CGFloat(cos(angle)) * radius, y: CGFloat(sin(angle)) * radius * 0.72)
+            .opacity(opacity)
+    }
+}
+
+private struct BurstSymbol: View {
+    let index: Int
+    let progress: CGFloat
+    let color: Color
+    let isShared: Bool
+
+    var body: some View {
+        let angle = Double(index) * (Double.pi / 2) - (Double.pi / 4)
+        let opacity = Double(1 - progress)
+        Image(systemName: index.isMultiple(of: 2) ? "sparkles" : "heart.fill")
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(color)
+            .offset(
+                x: CGFloat(cos(angle)) * ((isShared ? 150 : 105) + 60 * progress),
+                y: CGFloat(sin(angle)) * ((isShared ? 86 : 72) + 42 * progress)
+            )
+            .scaleEffect(0.65 + progress * 0.65)
+            .opacity(opacity)
     }
 }
 

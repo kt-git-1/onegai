@@ -250,6 +250,9 @@ final class LocalAppRepositoryTests: XCTestCase {
         XCTAssertEqual(state.initialTemplate?.requests.first { $0.id == request.id }?.completionCount, 1)
         XCTAssertEqual(state.records.first?.status, .active)
         XCTAssertNotNil(state.pendingCharinUndo)
+        if let pending = state.pendingCharinUndo, let record = state.records.first {
+            XCTAssertEqual(pending.expiresAt.timeIntervalSince(record.createdAt), 10, accuracy: 0.01)
+        }
 
         let didCancel = await state.cancelLatestCharin()
         XCTAssertTrue(didCancel)

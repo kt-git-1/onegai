@@ -16,7 +16,7 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["save-request-button"].exists)
     }
 
-    func testCharinConfirmationCelebrationAndUndoToast() {
+    func testCharinConfirmationShowsCelebrationWithoutUndoToast() {
         let app = XCUIApplication()
         app.launchArguments = ["-previewPhase", "main", "-previewTab", "requests", "-holdCharinCelebration"]
         app.launch()
@@ -28,9 +28,7 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         app.buttons["confirm-charin-button"].tap()
 
         XCTAssertTrue(app.staticTexts["ちゃりん！"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["cancel-charin-button"].waitForExistence(timeout: 4))
-        app.buttons["cancel-charin-button"].tap()
-        XCTAssertFalse(app.buttons["cancel-charin-button"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["cancel-charin-button"].exists)
     }
 
     func testCharinReturnsHomeWithRemainingUndoTime() {

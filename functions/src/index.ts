@@ -8,6 +8,7 @@ initializeApp();
 setGlobalOptions({region: "asia-northeast1", maxInstances: 10});
 
 const db = getFirestore();
+const CHARIN_UNDO_WINDOW_MS = 10_000;
 
 type BankType = "personal" | "shared";
 
@@ -539,7 +540,7 @@ export const cancelCharin = onCall(async (request) => {
       throw new HttpsError("failed-precondition", "このちゃりんはすでに取り消されています。");
     }
     const createdAt = recordSnapshot.get("createdAt") as Timestamp | undefined;
-    if (!createdAt || Date.now() - createdAt.toMillis() > 30_000) {
+    if (!createdAt || Date.now() - createdAt.toMillis() > CHARIN_UNDO_WINDOW_MS) {
       throw new HttpsError("deadline-exceeded", "取り消せる時間を過ぎました。");
     }
 

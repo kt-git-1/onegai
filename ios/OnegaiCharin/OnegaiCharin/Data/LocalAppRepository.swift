@@ -2,6 +2,7 @@ import Foundation
 
 @MainActor
 final class LocalAppRepository: AppRepository {
+    private let charinUndoDuration: TimeInterval = 10
     private(set) var authenticatedUser: AuthUser?
     private(set) var profile: UserProfile?
     private(set) var template: InitialTemplateResult?
@@ -302,7 +303,7 @@ final class LocalAppRepository: AppRepository {
         guard let recordIndex = records.firstIndex(where: { $0.id == recordId }),
               records[recordIndex].userId == user.id,
               records[recordIndex].status == .active,
-              Date().timeIntervalSince(records[recordIndex].createdAt) <= 30,
+              Date().timeIntervalSince(records[recordIndex].createdAt) <= charinUndoDuration,
               var current = template
         else { throw AppRepositoryError.invalidBackendResponse }
 
