@@ -1,0 +1,83 @@
+name: OnegaiCharin
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    from: 12.16.0
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS.git
+    from: 9.2.0
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: QSZR732YXD
+targets:
+  OnegaiCharin:
+    type: application
+    platform: iOS
+    sources:
+      - path: OnegaiCharin
+    dependencies:
+      - package: Firebase
+        product: FirebaseCore
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseFunctions
+      - package: Firebase
+        product: FirebaseAnalytics
+      - package: GoogleSignIn
+        product: GoogleSignIn
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kaito.onegaicharin
+        PRODUCT_NAME: OnegaiCharin
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        OTHER_LDFLAGS: "$(inherited) -ObjC"
+    entitlements:
+      path: OnegaiCharin/OnegaiCharin.entitlements
+      properties:
+        com.apple.developer.applesignin:
+          - Default
+    info:
+      path: OnegaiCharin/Info.plist
+      properties:
+        CFBundleDisplayName: おねがいチャリン
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.45672319132-lmsft5k7ph9775g2r35apm3ah94tqdtc
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UILaunchScreen: {}
+  OnegaiCharinTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: OnegaiCharinTests
+    dependencies:
+      - target: OnegaiCharin
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kaito.onegaicharin.tests
+        GENERATE_INFOPLIST_FILE: YES
+  OnegaiCharinUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: OnegaiCharinUITests
+    dependencies:
+      - target: OnegaiCharin
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kaito.onegaicharin.uitests
+        GENERATE_INFOPLIST_FILE: YES

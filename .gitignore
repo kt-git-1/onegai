@@ -1,1 +1,13 @@
 .DS_Store
+DerivedData/
+*.xcuserstate
+xcuserdata/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+functions/node_modules/
+functions/lib/
+prototype/.npm-cache/
+prototype/node_modules/
+prototype/.npmrc

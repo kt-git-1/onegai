@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "onegai-charin-dev",
+    "dev": "onegai-charin-dev"
+  }
+}

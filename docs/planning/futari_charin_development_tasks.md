@@ -1,20 +1,29 @@
-# ふたりちゃりん（仮）開発タスク一覧 v1.0
+# おねがいチャリン開発タスク一覧 v1.0
 
 ## Phase 0：プロジェクト準備
 
-- [ ] Xcodeプロジェクト作成
-- [ ] SwiftUI構成作成
-- [ ] Firebaseプロジェクト作成
-- [ ] Firebase Auth有効化
-- [ ] Firestore有効化
+- [x] Xcodeプロジェクト作成
+- [x] SwiftUI構成作成
+- [x] Firebaseプロジェクト作成
+- [x] Firebase Auth有効化
+- [x] Firestore有効化
 - [ ] Cloud Functions環境作成
 - [ ] FCM設定
 - [ ] Analytics設定
-- [ ] iOS bundle id設定
-- [ ] Apple Sign In設定
-- [ ] Google Sign In設定
+- [x] iOS bundle id設定
+- [x] Apple Sign In設定
+- [x] Google Sign In設定
 - [ ] ダークモード対応用Color Assets作成
 - [ ] SwiftLint導入検討
+
+開発環境メモ：
+- Firebase開発プロジェクト：`onegai-charin-dev`
+- Firestore / Functionsリージョン：`asia-northeast1`
+- メール / パスワード認証：有効
+- Google認証：有効。サポートメールは `taniguchidev33@gmail.com`
+- Functions：Emulator統合テスト済み。課金しない方針のためクラウドデプロイは対象外
+- 課金は行わず、開発中はAuth / Firestore / Functions Emulatorを使用する
+- TestFlight以降のFunctions相当処理は、無料枠で運用できる構成を実装前に決定する
 
 ---
 
@@ -22,17 +31,17 @@
 
 Firebase接続前に、まず画面を作る。
 
-- [ ] 共通テーマ作成
-- [ ] 下部タブ作成
-- [ ] オンボーディング3画面
-- [ ] 登録画面
-- [ ] プロフィール設定画面
-- [ ] テンプレート適用画面
-- [ ] 招待画面
-- [ ] ホーム画面
-- [ ] 貯金箱カード
+- [x] 共通テーマ作成
+- [x] 下部タブ作成
+- [x] オンボーディング3画面
+- [x] 登録画面
+- [x] プロフィール設定画面
+- [x] テンプレート適用画面
+- [x] 招待画面
+- [x] ホーム画面
+- [x] 貯金箱カード
 - [ ] 横スワイプ貯金箱
-- [ ] お願いカード
+- [x] お願いカード
 - [ ] ちゃりん確認ダイアログ
 - [ ] ちゃりん演出画面
 - [ ] ごほうび券カード
@@ -49,8 +58,8 @@ Firebase接続前に、まず画面を作る。
 ## Phase 2：認証・初期化
 
 - [ ] Firebase Auth連携
-- [ ] Appleログイン
-- [ ] Googleログイン
+- [x] Appleログイン
+- [x] Googleログイン
 - [ ] メール登録
 - [ ] users作成
 - [ ] プロフィール保存
@@ -77,6 +86,9 @@ Firebase接続前に、まず画面を作る。
 - [ ] 2人制限チェック
 - [ ] 招待済み状態表示
 - [ ] 招待後の相手情報表示
+- [ ] 招待期限切れ表示
+- [ ] 招待待ち画面内での再発行
+- [ ] 再発行時に既存active inviteを無効化
 
 ---
 
@@ -87,6 +99,7 @@ Firebase接続前に、まず画面を作る。
 - [ ] ふたりの貯金箱表示
 - [ ] 横スワイプ
 - [ ] 目標ごほうび券表示
+- [ ] 目標未設定時のごほうび券選択CTA
 - [ ] 残りコイン計算
 - [ ] 進捗ゲージ
 - [ ] よく使うお願い3件表示
@@ -111,6 +124,7 @@ Firebase接続前に、まず画面を作る。
 - [ ] charinRequest Function連携
 - [ ] ちゃりん演出
 - [ ] 30秒取り消し
+- [ ] ホーム遷移後の取り消しトースト継続
 - [ ] cancelCharin Function連携
 
 ---

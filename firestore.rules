@@ -1,0 +1,102 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isGroupMember(groupId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/groupMembers/$(groupId + '_' + request.auth.uid))
+        && get(/databases/$(database)/documents/groupMembers/$(groupId + '_' + request.auth.uid)).data.status == 'active';
+    }
+
+    function immutableOwnership() {
+      return request.resource.data.groupId == resource.data.groupId
+        && request.resource.data.createdBy == resource.data.createdBy;
+    }
+
+    match /users/{userId} {
+      allow read: if isSelf(userId)
+        || (resource.data.activeGroupId != null && isGroupMember(resource.data.activeGroupId));
+      allow create, update: if isSelf(userId);
+      allow delete: if false;
+    }
+
+    match /groups/{groupId} {
+      allow read: if isGroupMember(groupId);
+      allow write: if false;
+    }
+
+    match /groupMembers/{memberId} {
+      allow read: if isGroupMember(resource.data.groupId);
+      allow write: if false;
+    }
+
+    match /piggyBanks/{piggyBankId} {
+      allow read: if isGroupMember(resource.data.groupId);
+      allow write: if false;
+    }
+
+    match /requests/{requestId} {
+      allow read: if isGroupMember(resource.data.groupId);
+      allow create: if isGroupMember(request.resource.data.groupId)
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isGroupMember(resource.data.groupId)
+        && resource.data.createdBy == request.auth.uid
+        && immutableOwnership();
+      allow delete: if false;
+    }
+
+    match /rewards/{rewardId} {
+      allow read: if isGroupMember(resource.data.groupId);
+      allow create: if isGroupMember(request.resource.data.groupId)
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isGroupMember(resource.data.groupId)
+        && resource.data.createdBy == request.auth.uid
+        && immutableOwnership();
+      allow delete: if false;
+    }
+
+    match /tickets/{ticketId} {
+      allow read: if isGroupMember(resource.data.groupId);
+      allow write: if false;
+    }
+
+    match /records/{recordId} {
+      allow read: if isGroupMember(resource.data.groupId);
+      allow write: if false;
+    }
+
+    match /reactions/{reactionId} {
+      allow read: if isGroupMember(resource.data.groupId);
+      allow create, update: if isGroupMember(request.resource.data.groupId)
+        && request.resource.data.userId == request.auth.uid
+        && exists(/databases/$(database)/documents/records/$(request.resource.data.recordId))
+        && get(/databases/$(database)/documents/records/$(request.resource.data.recordId)).data.userId != request.auth.uid
+        && get(/databases/$(database)/documents/records/$(request.resource.data.recordId)).data.type == 'charin';
+      allow delete: if false;
+    }
+
+    match /invites/{inviteId} {
+      allow read: if isGroupMember(resource.data.groupId);
+      allow write: if false;
+    }
+
+    match /devices/{deviceId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create, update: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

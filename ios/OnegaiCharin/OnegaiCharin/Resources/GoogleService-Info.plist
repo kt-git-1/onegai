@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>45672319132-lmsft5k7ph9775g2r35apm3ah94tqdtc.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.45672319132-lmsft5k7ph9775g2r35apm3ah94tqdtc</string>
+	<key>API_KEY</key>
+	<string>AIzaSyCO-5GkwwiHTdJBgwN46-_AMhc0-X65YYk</string>
+	<key>GCM_SENDER_ID</key>
+	<string>45672319132</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.kaito.onegaicharin</string>
+	<key>PROJECT_ID</key>
+	<string>onegai-charin-dev</string>
+	<key>STORAGE_BUCKET</key>
+	<string>onegai-charin-dev.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:45672319132:ios:900035545eba5018b0c559</string>
+</dict>
+</plist>

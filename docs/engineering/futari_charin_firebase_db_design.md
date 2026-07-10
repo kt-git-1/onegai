@@ -1,4 +1,4 @@
-# ふたりちゃりん（仮）Firebase DB設計 v1.0
+# おねがいチャリンFirebase DB設計 v1.0
 
 ## 1. 技術構成
 
@@ -10,6 +10,17 @@
 - Analytics: Firebase Analytics
 - Storage: MVPでは原則不要
 - Remote Config: 将来テンプレート管理で検討
+
+### 開発環境（確定済み）
+
+- Firebase project ID: `onegai-charin-dev`
+- iOS bundle ID: `com.kaito.onegaicharin`
+- Firestore location: `asia-northeast1`
+- Cloud Functions region: `asia-northeast1`
+- Cloud Functions runtime: Node.js 22
+- 本番用Firebaseプロジェクトは開発用と分離し、リリース準備時に作成する
+- 課金は行わない。Cloud Functionsのクラウドデプロイは対象外とし、開発中はEmulator Suiteで検証する
+- TestFlight以降でFunctions相当の処理を提供する方法は、無料枠で運用できる別構成を含めて実装前に決定する
 
 ---
 
@@ -395,6 +406,13 @@ MVPでは主に `unused / used`。
 - used
 - expired
 - revoked
+
+### 再発行ルール
+
+- 招待待ち中に期限切れとなった場合、同じ画面から新しいinviteを発行できる。
+- 再発行時は、同一groupの既存active inviteを `revoked` にしてから新しいinviteを作成する。
+- クライアント側の表示だけで期限を延長せず、サーバー側で新しいcodeとexpiresAtを発行する。
+- 二重発行を避けるため、既存inviteの無効化と新規作成はTransactionまたは同等の原子的処理で行う。
 
 ---
 
