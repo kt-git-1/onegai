@@ -96,7 +96,10 @@ final class LocalAppRepository: AppRepository {
         let requests = [
             makeRequest(id: "request-massage", title: "マッサージ10分", emoji: "💆", coins: 100, bank: .personal, userId: user.id, groupId: groupId, now: now),
             makeRequest(id: "request-dishes", title: "皿洗い", emoji: "🧽", coins: 50, bank: .personal, userId: user.id, groupId: groupId, now: now),
-            makeRequest(id: "request-clean", title: "ふたりで部屋を片付ける", emoji: "🧹", coins: 200, bank: .shared, userId: user.id, groupId: groupId, now: now)
+            makeRequest(id: "request-shopping", title: "買い出し", emoji: "🛒", coins: 100, bank: .personal, userId: user.id, groupId: groupId, now: now),
+            makeRequest(id: "request-clean", title: "ふたりで部屋を片付ける", emoji: "🧹", coins: 200, bank: .shared, userId: user.id, groupId: groupId, now: now),
+            makeRequest(id: "request-date", title: "デートの予定を決める", emoji: "🥢", coins: 300, bank: .shared, userId: user.id, groupId: groupId, now: now),
+            makeRequest(id: "request-walk", title: "一緒に散歩する", emoji: "🚶", coins: 200, bank: .shared, userId: user.id, groupId: groupId, now: now)
         ]
         let rewards = [
             makeReward(id: "reward-coffee", title: "スタバごほうび券", emoji: "☕️", coins: 700, bank: .personal, userId: user.id, groupId: groupId, now: now),

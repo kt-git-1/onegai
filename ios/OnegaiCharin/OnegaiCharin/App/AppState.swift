@@ -204,8 +204,10 @@ final class AppState: ObservableObject {
         let requests = [
             RequestItem(id: "request-massage", groupId: group.id, createdBy: "user-preview", title: "マッサージ10分", iconEmoji: "💆", coinAmount: 100, piggyBankType: .personal, repeatType: .repeatable, status: .active, completionCount: 8, lastCompletedAt: now, createdAt: now, updatedAt: now),
             RequestItem(id: "request-dishes", groupId: group.id, createdBy: "user-preview", title: "皿洗い", iconEmoji: "🧽", coinAmount: 50, piggyBankType: .personal, repeatType: .repeatable, status: .active, completionCount: 5, lastCompletedAt: now, createdAt: now, updatedAt: now),
+            RequestItem(id: "request-shopping", groupId: group.id, createdBy: "user-preview", title: "買い出し", iconEmoji: "🛒", coinAmount: 100, piggyBankType: .personal, repeatType: .repeatable, status: .active, completionCount: 3, lastCompletedAt: now, createdAt: now, updatedAt: now),
             RequestItem(id: "request-clean", groupId: group.id, createdBy: "user-preview", title: "ふたりで部屋を片付ける", iconEmoji: "🧹", coinAmount: 200, piggyBankType: .shared, repeatType: .repeatable, status: .active, completionCount: 4, lastCompletedAt: now, createdAt: now, updatedAt: now),
             RequestItem(id: "request-date", groupId: group.id, createdBy: "partner-preview", title: "デートの予定を決める", iconEmoji: "🥢", coinAmount: 300, piggyBankType: .shared, repeatType: .repeatable, status: .active, completionCount: 2, lastCompletedAt: now, createdAt: now, updatedAt: now),
+            RequestItem(id: "request-walk", groupId: group.id, createdBy: "user-preview", title: "一緒に散歩する", iconEmoji: "🚶", coinAmount: 200, piggyBankType: .shared, repeatType: .repeatable, status: .active, completionCount: 1, lastCompletedAt: now, createdAt: now, updatedAt: now),
         ]
         return InitialTemplateResult(group: group, piggyBanks: banks, requests: requests, rewards: rewards, invite: invite)
     }

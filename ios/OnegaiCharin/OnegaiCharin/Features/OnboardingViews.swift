@@ -23,17 +23,19 @@ struct OnboardingView: View {
                 .foregroundStyle(Color.appSecondary)
 
             ZStack {
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(Color.appPrimarySoft)
+                BrandPatternBackground()
                 MascotView(size: .onboarding)
             }
             .frame(height: 222)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+            .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
+            .shadow(color: Color.appText.opacity(0.07), radius: 10, y: 4)
             .padding(.horizontal, 36)
             .padding(.top, 28)
 
             VStack(spacing: 24) {
                 Text(page.title)
-                    .font(.system(size: 27, weight: .bold))
+                    .font(.system(size: 27, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
                     .lineSpacing(5)
                 Text(page.detail)
@@ -61,11 +63,11 @@ struct AuthenticationView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer().frame(height: 62)
+            Spacer().frame(height: 92)
             MascotView(size: .authentication)
-                .padding(.bottom, 26)
+                .padding(.bottom, 18)
             Text("おねがいチャリン")
-                .font(.system(size: 24, weight: .bold))
+                .font(.system(size: 24, weight: .bold, design: .rounded))
             Text("やさしさが、ちゃりんと貯まる。")
                 .font(.system(size: 14))
                 .foregroundStyle(Color.appSecondary)

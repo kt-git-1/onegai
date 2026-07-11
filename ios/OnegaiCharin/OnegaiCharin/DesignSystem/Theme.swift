@@ -84,19 +84,82 @@ struct MascotView: View {
 struct BrandTitle: View {
     let title: String
     var compact = true
+    var showsMark = true
 
     var body: some View {
         HStack(spacing: compact ? 7 : 9) {
-            Image("PiggyBank")
-                .resizable()
-                .scaledToFit()
-                .frame(width: compact ? 30 : 36, height: compact ? 30 : 36)
-                .accessibilityHidden(true)
+            if showsMark {
+                Image("PiggyBank")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: compact ? 30 : 36, height: compact ? 30 : 36)
+                    .accessibilityHidden(true)
+            }
             Text(title)
-                .font(.system(size: compact ? 17 : 22, weight: .bold, design: .rounded))
+                .font(.system(size: compact ? (showsMark ? 17 : 16) : 22, weight: .bold, design: .rounded))
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+struct BrandPatternBackground: View {
+    var body: some View {
+        ZStack {
+            Color.appSurface
+            Canvas { context, size in
+                let stripe = Path { path in
+                    var offset: CGFloat = -size.height
+                    while offset < size.width {
+                        path.move(to: CGPoint(x: offset, y: size.height))
+                        path.addLine(to: CGPoint(x: offset + size.height, y: 0))
+                        offset += 34
+                    }
+                }
+                context.stroke(stripe, with: .color(Color.appPrimary.opacity(0.14)), lineWidth: 1)
+            }
+        }
+    }
+}
+
+struct TopTabBar<Item: Hashable>: View {
+    let items: [(value: Item, title: String)]
+    @Binding var selection: Item
+    var accessibilityIdentifiers: [String]? = nil
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { selection = item.value }
+                } label: {
+                    VStack(spacing: 10) {
+                        Text(item.title)
+                            .font(.system(size: 15, weight: selection == item.value ? .bold : .semibold))
+                            .foregroundStyle(selection == item.value ? Color.appText : Color.appSecondary)
+                            .frame(maxWidth: .infinity)
+                        Capsule()
+                            .fill(selection == item.value ? Color.appPrimary : Color.clear)
+                            .frame(height: 3)
+                            .padding(.horizontal, 18)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(accessibilityIdentifiers?[safe: index] ?? "")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+        .background(Color.appSurface)
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.appBorder).frame(height: 1) }
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
@@ -109,7 +172,7 @@ private struct BrandNavigationTitleModifier: ViewModifier {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    BrandTitle(title: title)
+                    BrandTitle(title: title, showsMark: title.count <= 6)
                 }
             }
     }
@@ -128,5 +191,9 @@ extension View {
     func appScreen() -> some View { modifier(ScreenBackground()) }
     func brandNavigationTitle(_ title: String) -> some View {
         modifier(BrandNavigationTitleModifier(title: title))
+    }
+    func modernFormBackground() -> some View {
+        scrollContentBackground(.hidden)
+            .background(Color.appBackground)
     }
 }

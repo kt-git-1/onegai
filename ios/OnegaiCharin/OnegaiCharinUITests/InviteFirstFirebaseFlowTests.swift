@@ -11,7 +11,7 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["編集"].waitForExistence(timeout: 2))
 
         app.buttons["add-request-button"].tap()
-        XCTAssertTrue(app.navigationBars["おねがいを作る"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["おねがいを作る"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.textFields["request-title-field"].exists)
         XCTAssertTrue(app.buttons["save-request-button"].exists)
     }
@@ -29,6 +29,19 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["ちゃりん！"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["cancel-charin-button"].exists)
+    }
+
+    func testHomeRequestCanCharin() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-previewPhase", "main", "-holdCharinCelebration"]
+        app.launch()
+
+        let charin = app.buttons["home-charin-request-massage"]
+        XCTAssertTrue(charin.waitForExistence(timeout: 3))
+        charin.tap()
+        XCTAssertTrue(app.buttons["confirm-charin-button"].waitForExistence(timeout: 2))
+        app.buttons["confirm-charin-button"].tap()
+        XCTAssertTrue(app.staticTexts["ちゃりん！"].waitForExistence(timeout: 3))
     }
 
     func testCharinReturnsHomeWithRemainingUndoTime() {
@@ -86,11 +99,11 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         app.staticTexts["スタバごほうび券"].tap()
         XCTAssertTrue(app.buttons["edit-reward-reward-coffee"].waitForExistence(timeout: 2))
         app.buttons["edit-reward-reward-coffee"].tap()
-        XCTAssertTrue(app.navigationBars["ごほうび券を編集"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["ごほうび券を編集"].waitForExistence(timeout: 2))
         app.buttons["キャンセル"].tap()
 
         app.buttons["add-reward-button"].tap()
-        XCTAssertTrue(app.navigationBars["ごほうび券を作る"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["ごほうび券を作る"].waitForExistence(timeout: 2))
         let title = app.textFields["reward-title-field"]
         title.tap()
         title.typeText("映画ごほうび券")

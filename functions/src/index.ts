@@ -40,12 +40,13 @@ type CharinResult = {
 const personalRequests = [
   {title: "マッサージ10分", iconEmoji: "💆", coinAmount: 100},
   {title: "皿洗い", iconEmoji: "🧽", coinAmount: 50},
-  {title: "買い出し", iconEmoji: "🛍️", coinAmount: 80},
+  {title: "買い出し", iconEmoji: "🛒", coinAmount: 100},
 ];
 
 const sharedRequests = [
   {title: "ふたりで部屋を片付ける", iconEmoji: "🧹", coinAmount: 200},
   {title: "デートの予定を決める", iconEmoji: "🥢", coinAmount: 300},
+  {title: "一緒に散歩する", iconEmoji: "🚶", coinAmount: 200},
 ];
 
 const rewards = [

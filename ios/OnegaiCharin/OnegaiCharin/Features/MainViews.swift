@@ -472,6 +472,7 @@ private struct RequestRow: View {
                 .foregroundStyle(Color.appText)
                 .padding(.horizontal, 13).frame(height: 36)
                 .background(Color.appPrimary).clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
+                .accessibilityIdentifier("home-charin-\(request.id)")
         }
         .padding(12)
     }
@@ -484,6 +485,14 @@ struct RequestsView: View {
     @State private var editorRoute: RequestEditorRoute?
     @State private var charinRequest: RequestItem?
 
+    init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-previewRequestEditor") {
+            _editorRoute = State(initialValue: .create(.personal))
+        }
+        #endif
+    }
+
     private var requests: [RequestItem] {
         (appState.initialTemplate?.requests ?? [])
             .filter { $0.status == .active && $0.piggyBankType == bankType }
@@ -495,13 +504,14 @@ struct RequestsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("貯金箱", selection: $bankType) {
-                Text("おねがい").tag(PiggyBank.OwnerType.personal)
-                Text("ふたりのおねがい").tag(PiggyBank.OwnerType.shared)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
+            TopTabBar(
+                items: [
+                    (PiggyBank.OwnerType.personal, "おねがい"),
+                    (PiggyBank.OwnerType.shared, "ふたりのおねがい")
+                ],
+                selection: $bankType
+            )
+            .padding(.bottom, 12)
             .accessibilityIdentifier("request-bank-picker")
 
             if requests.isEmpty {
@@ -635,6 +645,7 @@ private struct RequestListCard: View {
         .background(Color.appSurface)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(color: Color.appText.opacity(0.055), radius: 7, y: 3)
         .accessibilityIdentifier("request-card-\(request.id)")
     }
 }
@@ -731,6 +742,7 @@ private struct RequestEditorView: View {
                 }
             }
         }
+        .modernFormBackground()
         .brandNavigationTitle(request == nil ? "おねがいを作る" : "おねがいを編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1236,16 +1248,12 @@ struct RewardsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("券", selection: $section) {
-                ForEach(SectionTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue)
-                        .tag(tab)
-                        .accessibilityIdentifier("reward-section-\(tab == .rewards ? "rewards" : "tickets")")
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+            TopTabBar(
+                items: SectionTab.allCases.map { ($0, $0.rawValue) },
+                selection: $section,
+                accessibilityIdentifiers: ["reward-section-rewards", "reward-section-tickets"]
+            )
+            .padding(.bottom, 14)
 
             if section == .rewards {
                 rewardList
@@ -1321,6 +1329,10 @@ struct RewardsView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .padding(6)
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+            .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
             .padding(.horizontal, 16)
 
             HStack(spacing: 8) {
@@ -1390,6 +1402,10 @@ struct RewardsView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .padding(6)
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+            .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
             .padding(.horizontal, 16)
 
             if filteredTickets.isEmpty {
@@ -1552,6 +1568,7 @@ private struct RewardCard: View {
         .background(Color.appSurface)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(color: Color.appText.opacity(0.055), radius: 8, y: 3)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("reward-card-\(reward.id)")
     }
@@ -1756,6 +1773,7 @@ private struct TicketListCard: View {
         .opacity(ticket.status == .used ? 0.58 : 1)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(color: Color.appText.opacity(0.055), radius: 8, y: 3)
         .accessibilityIdentifier("ticket-card-\(ticket.id)")
     }
 }
@@ -2080,6 +2098,7 @@ private struct RewardEditorView: View {
                 }
             }
         }
+        .modernFormBackground()
         .brandNavigationTitle(reward == nil ? "ごほうび券を作る" : "ごほうび券を編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -2145,27 +2164,57 @@ private struct RewardEmptyState: View {
 
 struct RecordsView: View {
     var body: some View {
-        List {
-            Section("今月") {
-                record("マッサージ10分", detail: "今日 20:12", amount: "+100")
-                record("皿洗い", detail: "昨日 19:30", amount: "+50")
-                record("スタバごほうび券", detail: "7月8日", amount: "-700")
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                Text("今月")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+
+                VStack(spacing: 0) {
+                    record("マッサージ10分", detail: "今日 20:12", amount: "+100", icon: "💆")
+                    Divider().padding(.leading, 66)
+                    record("皿洗い", detail: "昨日 19:30", amount: "+50", icon: "🧽")
+                    Divider().padding(.leading, 66)
+                    record("スタバごほうび券", detail: "7月8日", amount: "-700", icon: "☕️")
+                }
+                .background(Color.appSurface)
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+                .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
+                .shadow(color: Color.appText.opacity(0.055), radius: 8, y: 3)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .scrollContentBackground(.hidden)
         .background(Color.appBackground)
         .brandNavigationTitle("きろく")
     }
 
-    private func record(_ title: String, detail: String, amount: String) -> some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text(title)
-                Text(detail).font(.caption).foregroundStyle(Color.appSecondary)
+    private func record(_ title: String, detail: String, amount: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Text(icon)
+                .font(.system(size: 23))
+                .frame(width: 42, height: 42)
+                .background(Color.appPrimarySoft)
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.system(size: 15, weight: .semibold))
+                Text(detail).font(.system(size: 12)).foregroundStyle(Color.appSecondary)
             }
             Spacer()
-            Text(amount).foregroundStyle(amount.hasPrefix("+") ? Color.appSuccess : Color.appError)
-            Button(action: {}) { Image(systemName: "face.smiling") }.buttonStyle(.plain)
+            Text(amount)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(amount.hasPrefix("+") ? Color.appSuccess : Color.appError)
+            Button(action: {}) {
+                Image(systemName: "face.smiling")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color.appSecondary)
+                    .frame(width: 36, height: 36)
+                    .background(Color.appBackground)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("スタンプを選ぶ")
         }
+        .padding(12)
     }
 }

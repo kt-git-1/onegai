@@ -42,14 +42,13 @@ private struct SetupHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
                 Button(action: back) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 17, weight: .semibold))
                         .frame(width: 44, height: 44)
                 }
-                Text(title)
-                    .font(.system(size: 24, weight: .bold))
+                BrandTitle(title: title)
             }
             if let detail {
                 Text(detail)
@@ -89,6 +88,10 @@ struct EmailRegistrationView: View {
                     .textContentType(.newPassword)
             }
             .textFieldStyle(AppTextFieldStyle())
+            .padding(16)
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+            .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
 
             Text("登録すると、利用規約とプライバシーポリシーに同意したことになります。")
                 .font(.system(size: 12))
@@ -148,6 +151,10 @@ struct EmailLoginView: View {
                     .textContentType(.password)
             }
             .textFieldStyle(AppTextFieldStyle())
+            .padding(16)
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+            .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
 
             Button("パスワードをお忘れの方") {
                 Task { await appState.sendPasswordReset(email: email) }
@@ -230,6 +237,10 @@ struct InviteCodeEntryView: View {
                 .onChange(of: code) { _, _ in
                     if code != normalizedCode { code = normalizedCode }
                 }
+                .padding(16)
+                .background(Color.appSurface)
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+                .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
 
             if let error = appState.errorMessage {
                 Text(error)
@@ -257,6 +268,10 @@ struct InviteAcceptanceView: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer().frame(height: 28)
+
+            Text("招待")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .padding(.bottom, 20)
 
             ZStack {
                 Circle().fill(Color.appPrimarySoft)
@@ -358,6 +373,10 @@ struct ProfileView: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+            .background(Color.appSurface)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+            .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
 
             VStack(alignment: .leading, spacing: 7) {
                 Text("名前").font(.system(size: 13, weight: .semibold))
@@ -395,15 +414,15 @@ struct TemplateView: View {
             }
 
             VStack(alignment: .leading, spacing: 18) {
-                templateSection("自分の貯金箱", rows: ["💆 マッサージ10分  +100コイン", "🧺 皿洗い  +50コイン"])
+                templateSection("自分の貯金箱", rows: ["💆 マッサージ10分  +100コイン", "🧽 皿洗い  +50コイン", "🛒 買い出し  +100コイン"])
                 Divider()
-                templateSection("ふたりの貯金箱", rows: ["🧹 部屋を片付ける  +200コイン", "🥢 デートの予定を決める  +300コイン"])
+                templateSection("ふたりの貯金箱", rows: ["🧹 部屋を片付ける  +200コイン", "🥢 デートの予定を決める  +300コイン", "🚶 一緒に散歩する  +200コイン"])
             }
             .padding(18)
             .background(Color.appSurface)
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+            .shadow(color: Color.appText.opacity(0.06), radius: 8, y: 3)
 
             Spacer()
 
@@ -440,7 +459,7 @@ struct InviteView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             Text("相手を招待しよう")
-                .font(.system(size: 24, weight: .bold))
+                .font(.system(size: 24, weight: .bold, design: .rounded))
             Text("おねがいチャリンは、ふたりで使うアプリです。招待リンクを相手に送ってください。")
                 .font(.system(size: 14))
                 .foregroundStyle(Color.appSecondary)
@@ -502,8 +521,11 @@ struct InviteWaitingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Text("招待待ち")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .padding(.top, 10)
             MascotView(size: .authentication)
-                .padding(.top, 20)
+                .padding(.top, 16)
 
             Text("相手の参加を待っています")
                 .font(.system(size: 24, weight: .bold))

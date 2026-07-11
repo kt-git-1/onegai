@@ -14,7 +14,10 @@ final class LocalAppRepositoryTests: XCTestCase {
         XCTAssertNil(profile.iconEmoji)
         XCTAssertEqual(result.group.memberIds, [user.id])
         XCTAssertEqual(result.piggyBanks.map(\.ownerType), [.personal, .shared])
-        XCTAssertFalse(result.requests.isEmpty)
+        XCTAssertEqual(result.requests.filter { $0.piggyBankType == .personal }.count, 3)
+        XCTAssertEqual(result.requests.filter { $0.piggyBankType == .shared }.count, 3)
+        XCTAssertTrue(result.requests.contains { $0.title == "買い出し" && $0.coinAmount == 100 })
+        XCTAssertTrue(result.requests.contains { $0.title == "一緒に散歩する" && $0.coinAmount == 200 })
         XCTAssertFalse(result.rewards.isEmpty)
         XCTAssertEqual(result.invite.status, .active)
     }
