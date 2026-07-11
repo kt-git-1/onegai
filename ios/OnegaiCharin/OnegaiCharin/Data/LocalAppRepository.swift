@@ -7,6 +7,7 @@ final class LocalAppRepository: AppRepository {
     private(set) var profile: UserProfile?
     private(set) var template: InitialTemplateResult?
     private(set) var records: [ActivityRecord] = []
+    private(set) var tickets: [Ticket] = []
     private(set) var revokedInviteIds: Set<String> = []
     private var inviteSequence = 1
     private var memberObservers: [UUID: (Result<Int, Error>) -> Void] = [:]
@@ -45,7 +46,7 @@ final class LocalAppRepository: AppRepository {
         } else {
             partnerProfile = nil
         }
-        return AppSession(profile: profile, initialTemplate: template, partnerProfile: partnerProfile, records: records)
+        return AppSession(profile: profile, initialTemplate: template, partnerProfile: partnerProfile, records: records, tickets: tickets)
     }
 
     func saveProfile(displayName: String, iconEmoji: String?) async throws -> UserProfile {
@@ -228,6 +229,162 @@ final class LocalAppRepository: AppRepository {
         return hidden
     }
 
+    func createReward(_ draft: RewardDraft) async throws -> Reward {
+        await pause()
+        guard let user = authenticatedUser else { throw AppRepositoryError.unauthenticated }
+        guard var current = template else { throw AppRepositoryError.invalidBackendResponse }
+        let normalized = try normalizedRewardDraft(draft)
+        let now = Date()
+        let reward = Reward(
+            id: "reward-\(UUID().uuidString.lowercased())",
+            groupId: current.group.id,
+            createdBy: user.id,
+            title: normalized.title,
+            iconEmoji: normalized.iconEmoji,
+            requiredCoins: normalized.requiredCoins,
+            piggyBankType: normalized.piggyBankType,
+            isTarget: false,
+            expiresInType: normalized.expiresInType,
+            expiresInDays: normalized.expiresInDays,
+            expiresAt: normalized.expiresAt,
+            status: .active,
+            createdAt: now,
+            updatedAt: now
+        )
+        current = replacingRewards(in: current, with: current.rewards + [reward])
+        template = current
+        return reward
+    }
+
+    func updateReward(_ reward: Reward, draft: RewardDraft) async throws -> Reward {
+        await pause()
+        guard let user = authenticatedUser else { throw AppRepositoryError.unauthenticated }
+        guard reward.createdBy == user.id else { throw AppRepositoryError.rewardNotOwned }
+        guard var current = template else { throw AppRepositoryError.invalidBackendResponse }
+        let normalized = try normalizedRewardDraft(draft)
+        var updated = reward
+        updated.title = normalized.title
+        updated.iconEmoji = normalized.iconEmoji
+        updated.requiredCoins = normalized.requiredCoins
+        updated.piggyBankType = normalized.piggyBankType
+        updated.expiresInType = normalized.expiresInType
+        updated.expiresInDays = normalized.expiresInDays
+        updated.expiresAt = normalized.expiresAt
+        updated.updatedAt = Date()
+        current = replacingRewards(in: current, with: current.rewards.map { $0.id == reward.id ? updated : $0 })
+        template = current
+        return updated
+    }
+
+    func hideReward(_ reward: Reward) async throws -> Reward {
+        await pause()
+        guard let user = authenticatedUser else { throw AppRepositoryError.unauthenticated }
+        guard reward.createdBy == user.id else { throw AppRepositoryError.rewardNotOwned }
+        guard var current = template else { throw AppRepositoryError.invalidBackendResponse }
+        var hidden = reward
+        hidden.status = .hidden
+        hidden.updatedAt = Date()
+        current = replacingRewards(in: current, with: current.rewards.map { $0.id == reward.id ? hidden : $0 })
+        template = current
+        return hidden
+    }
+
+    func exchangeReward(groupId: String, rewardId: String, piggyBankId: String) async throws -> RewardExchangeResult {
+        await pause()
+        guard let user = authenticatedUser else { throw AppRepositoryError.unauthenticated }
+        guard var current = template,
+              current.group.id == groupId,
+              let reward = current.rewards.first(where: { $0.id == rewardId && $0.status == .active }),
+              let bankIndex = current.piggyBanks.firstIndex(where: { $0.id == piggyBankId && $0.status == .active })
+        else { throw AppRepositoryError.invalidBackendResponse }
+        guard !tickets.contains(where: { $0.rewardId == rewardId && $0.status != .canceled }) else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        var bank = current.piggyBanks[bankIndex]
+        guard bank.ownerType == reward.piggyBankType else { throw AppRepositoryError.invalidBackendResponse }
+        guard bank.balance >= reward.requiredCoins else { throw AppRepositoryError.insufficientCoins }
+
+        let now = Date()
+        let balanceBefore = bank.balance
+        bank.balance -= reward.requiredCoins
+        bank.updatedAt = now
+        current = replacingTemplate(current, banks: current.piggyBanks.map { $0.id == bank.id ? bank : $0 }, requests: current.requests)
+        template = current
+
+        let expiresAt: Date? = switch reward.expiresInType {
+        case .none: nil
+        case .days: Calendar.current.date(byAdding: .day, value: reward.expiresInDays ?? 0, to: now)
+        case .date: reward.expiresAt
+        }
+        let ticket = Ticket(
+            id: "ticket-\(UUID().uuidString.lowercased())",
+            groupId: groupId,
+            rewardId: reward.id,
+            issuedBy: user.id,
+            ownerUserId: bank.ownerType == .personal ? bank.ownerUserId : nil,
+            piggyBankId: bank.id,
+            ticketType: bank.ownerType,
+            title: reward.title,
+            iconEmoji: reward.iconEmoji,
+            spentCoins: reward.requiredCoins,
+            status: .unused,
+            issuedAt: now,
+            usedAt: nil,
+            usedBy: nil,
+            expiresAt: expiresAt,
+            createdAt: now,
+            updatedAt: now
+        )
+        let record = ActivityRecord(
+            id: "record-\(UUID().uuidString.lowercased())",
+            groupId: groupId,
+            userId: user.id,
+            type: .rewardExchange,
+            targetType: "reward",
+            targetId: reward.id,
+            title: reward.title,
+            iconEmoji: reward.iconEmoji,
+            coinDelta: -reward.requiredCoins,
+            piggyBankId: bank.id,
+            piggyBankName: bank.name,
+            balanceBefore: balanceBefore,
+            balanceAfter: bank.balance,
+            status: .active,
+            createdAt: now,
+            canceledAt: nil
+        )
+        tickets.insert(ticket, at: 0)
+        records.insert(record, at: 0)
+        return RewardExchangeResult(ticket: ticket, record: record)
+    }
+
+    func useTicket(ticketId: String) async throws -> TicketUseResult {
+        await pause()
+        guard let user = authenticatedUser else { throw AppRepositoryError.unauthenticated }
+        guard let ticketIndex = tickets.firstIndex(where: { $0.id == ticketId }),
+              tickets[ticketIndex].status == .unused,
+              let current = template,
+              let bank = current.piggyBanks.first(where: { $0.id == tickets[ticketIndex].piggyBankId })
+        else { throw AppRepositoryError.invalidBackendResponse }
+        let now = Date()
+        var ticket = tickets[ticketIndex]
+        ticket.status = .used
+        ticket.usedAt = now
+        ticket.usedBy = user.id
+        ticket.updatedAt = now
+        tickets[ticketIndex] = ticket
+        let record = ActivityRecord(
+            id: "record-\(UUID().uuidString.lowercased())", groupId: ticket.groupId,
+            userId: user.id, type: .ticketUsed, targetType: "ticket", targetId: ticket.id,
+            title: ticket.title, iconEmoji: ticket.iconEmoji, coinDelta: 0,
+            piggyBankId: bank.id, piggyBankName: bank.name,
+            balanceBefore: bank.balance, balanceAfter: bank.balance,
+            status: .active, createdAt: now, canceledAt: nil
+        )
+        records.insert(record, at: 0)
+        return TicketUseResult(ticket: ticket, record: record)
+    }
+
     func charinRequest(groupId: String, requestId: String) async throws -> CharinResult {
         await pause()
         guard let user = authenticatedUser else { throw AppRepositoryError.unauthenticated }
@@ -270,7 +427,21 @@ final class LocalAppRepository: AppRepository {
             createdAt: now,
             canceledAt: nil
         )
-        let targetReward = current.rewards.first { $0.id == bank.targetRewardId && $0.status == .active }.map {
+        let exchangedRewardIds = Set(tickets.filter { $0.status != .canceled }.map(\.rewardId))
+        let nearestReward = current.rewards
+            .filter { reward in
+                guard reward.status == .active,
+                      reward.piggyBankType == bank.ownerType,
+                      !exchangedRewardIds.contains(reward.id) else { return false }
+                return bank.ownerType == .shared || reward.createdBy == bank.ownerUserId
+            }
+            .min { lhs, rhs in
+                let lhsRemaining = max(lhs.requiredCoins - bank.balance, 0)
+                let rhsRemaining = max(rhs.requiredCoins - bank.balance, 0)
+                if lhsRemaining != rhsRemaining { return lhsRemaining < rhsRemaining }
+                return lhs.requiredCoins < rhs.requiredCoins
+            }
+        let targetReward = nearestReward.map {
             TargetRewardProgress(
                 id: $0.id,
                 title: $0.title,
@@ -438,12 +609,44 @@ final class LocalAppRepository: AppRepository {
         )
     }
 
+    private func normalizedRewardDraft(_ draft: RewardDraft) throws -> RewardDraft {
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let emoji = draft.iconEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expiryIsValid = switch draft.expiresInType {
+        case .none: true
+        case .days: draft.expiresInDays.map { $0 > 0 } ?? false
+        case .date: draft.expiresAt.map { $0 > Date() } ?? false
+        }
+        guard !title.isEmpty, !emoji.isEmpty, draft.requiredCoins > 0, expiryIsValid else {
+            throw AppRepositoryError.invalidReward
+        }
+        return RewardDraft(
+            title: title,
+            iconEmoji: emoji,
+            requiredCoins: draft.requiredCoins,
+            piggyBankType: draft.piggyBankType,
+            expiresInType: draft.expiresInType,
+            expiresInDays: draft.expiresInType == .days ? draft.expiresInDays : nil,
+            expiresAt: draft.expiresInType == .date ? draft.expiresAt : nil
+        )
+    }
+
     private func replacingRequests(in current: InitialTemplateResult, with requests: [RequestItem]) -> InitialTemplateResult {
         InitialTemplateResult(
             group: current.group,
             piggyBanks: current.piggyBanks,
             requests: requests,
             rewards: current.rewards,
+            invite: current.invite
+        )
+    }
+
+    private func replacingRewards(in current: InitialTemplateResult, with rewards: [Reward]) -> InitialTemplateResult {
+        InitialTemplateResult(
+            group: current.group,
+            piggyBanks: current.piggyBanks,
+            requests: current.requests,
+            rewards: rewards,
             invite: current.invite
         )
     }

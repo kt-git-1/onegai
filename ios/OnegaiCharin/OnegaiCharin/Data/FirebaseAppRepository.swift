@@ -53,13 +53,15 @@ final class FirebaseAppRepository: AppRepository {
         async let rewardDocuments = firestore.collection("rewards").whereField("groupId", isEqualTo: groupId).getDocuments()
         async let inviteDocuments = firestore.collection("invites").whereField("groupId", isEqualTo: groupId).getDocuments()
         async let recordDocuments = firestore.collection("records").whereField("groupId", isEqualTo: groupId).getDocuments()
-        let (groupSnapshot, bankSnapshot, requestSnapshot, rewardSnapshot, inviteSnapshot, recordSnapshot) = try await (
+        async let ticketDocuments = firestore.collection("tickets").whereField("groupId", isEqualTo: groupId).getDocuments()
+        let (groupSnapshot, bankSnapshot, requestSnapshot, rewardSnapshot, inviteSnapshot, recordSnapshot, ticketSnapshot) = try await (
             groupDocument,
             bankDocuments,
             requestDocuments,
             rewardDocuments,
             inviteDocuments,
-            recordDocuments
+            recordDocuments,
+            ticketDocuments
         )
 
         let group = try mapGroup(groupSnapshot)
@@ -85,11 +87,15 @@ final class FirebaseAppRepository: AppRepository {
             .map(mapRecord)
             .filter { $0.status == .active }
             .sorted { $0.createdAt > $1.createdAt }
+        let tickets = try ticketSnapshot.documents
+            .map(mapTicket)
+            .sorted { $0.issuedAt > $1.issuedAt }
         return AppSession(
             profile: profile,
             initialTemplate: initialTemplate,
             partnerProfile: partnerProfile,
-            records: records
+            records: records,
+            tickets: tickets
         )
     }
 
@@ -262,6 +268,91 @@ final class FirebaseAppRepository: AppRepository {
             "updatedAt": Timestamp(date: hidden.updatedAt),
         ])
         return hidden
+    }
+
+    func createReward(_ draft: RewardDraft) async throws -> Reward {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        let user = try await firestore.collection("users").document(userId).getDocument()
+        guard let groupId = user.get("activeGroupId") as? String else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        let normalized = try normalizedRewardDraft(draft)
+        let reference = firestore.collection("rewards").document()
+        let now = Date()
+        let reward = Reward(
+            id: reference.documentID,
+            groupId: groupId,
+            createdBy: userId,
+            title: normalized.title,
+            iconEmoji: normalized.iconEmoji,
+            requiredCoins: normalized.requiredCoins,
+            piggyBankType: normalized.piggyBankType,
+            isTarget: false,
+            expiresInType: normalized.expiresInType,
+            expiresInDays: normalized.expiresInDays,
+            expiresAt: normalized.expiresAt,
+            status: .active,
+            createdAt: now,
+            updatedAt: now
+        )
+        try await reference.setData(rewardData(reward))
+        return reward
+    }
+
+    func updateReward(_ reward: Reward, draft: RewardDraft) async throws -> Reward {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        guard reward.createdBy == userId else { throw AppRepositoryError.rewardNotOwned }
+        let normalized = try normalizedRewardDraft(draft)
+        var updated = reward
+        updated.title = normalized.title
+        updated.iconEmoji = normalized.iconEmoji
+        updated.requiredCoins = normalized.requiredCoins
+        updated.piggyBankType = normalized.piggyBankType
+        updated.expiresInType = normalized.expiresInType
+        updated.expiresInDays = normalized.expiresInDays
+        updated.expiresAt = normalized.expiresAt
+        updated.updatedAt = Date()
+        try await firestore.collection("rewards").document(reward.id).setData(rewardData(updated), merge: true)
+        return updated
+    }
+
+    func hideReward(_ reward: Reward) async throws -> Reward {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        guard reward.createdBy == userId else { throw AppRepositoryError.rewardNotOwned }
+        var hidden = reward
+        hidden.status = .hidden
+        hidden.updatedAt = Date()
+        try await firestore.collection("rewards").document(reward.id).updateData([
+            "status": hidden.status.rawValue,
+            "updatedAt": Timestamp(date: hidden.updatedAt),
+        ])
+        return hidden
+    }
+
+    func exchangeReward(groupId: String, rewardId: String, piggyBankId: String) async throws -> RewardExchangeResult {
+        let response = try await functions.httpsCallable("exchangeReward").call([
+            "groupId": groupId,
+            "rewardId": rewardId,
+            "piggyBankId": piggyBankId,
+        ])
+        guard let data = response.data as? [String: Any],
+              let ticketData = data["ticket"] as? [String: Any],
+              let recordData = data["record"] as? [String: Any],
+              let ticket = ticket(from: ticketData),
+              let record = record(from: recordData)
+        else { throw AppRepositoryError.invalidBackendResponse }
+        return RewardExchangeResult(ticket: ticket, record: record)
+    }
+
+    func useTicket(ticketId: String) async throws -> TicketUseResult {
+        let response = try await functions.httpsCallable("useTicket").call(["ticketId": ticketId])
+        guard let data = response.data as? [String: Any],
+              let ticketData = data["ticket"] as? [String: Any],
+              let recordData = data["record"] as? [String: Any],
+              let ticket = ticket(from: ticketData),
+              let record = ticketUseRecord(from: recordData)
+        else { throw AppRepositoryError.invalidBackendResponse }
+        return TicketUseResult(ticket: ticket, record: record)
     }
 
     func charinRequest(groupId: String, requestId: String) async throws -> CharinResult {
@@ -561,6 +652,28 @@ final class FirebaseAppRepository: AppRepository {
         )
     }
 
+    private func normalizedRewardDraft(_ draft: RewardDraft) throws -> RewardDraft {
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let emoji = draft.iconEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expiryIsValid = switch draft.expiresInType {
+        case .none: true
+        case .days: draft.expiresInDays.map { $0 > 0 } ?? false
+        case .date: draft.expiresAt.map { $0 > Date() } ?? false
+        }
+        guard !title.isEmpty, !emoji.isEmpty, draft.requiredCoins > 0, expiryIsValid else {
+            throw AppRepositoryError.invalidReward
+        }
+        return RewardDraft(
+            title: title,
+            iconEmoji: emoji,
+            requiredCoins: draft.requiredCoins,
+            piggyBankType: draft.piggyBankType,
+            expiresInType: draft.expiresInType,
+            expiresInDays: draft.expiresInType == .days ? draft.expiresInDays : nil,
+            expiresAt: draft.expiresInType == .date ? draft.expiresAt : nil
+        )
+    }
+
     private func requestData(_ request: RequestItem) -> [String: Any] {
         [
             "groupId": request.groupId,
@@ -576,6 +689,122 @@ final class FirebaseAppRepository: AppRepository {
             "createdAt": Timestamp(date: request.createdAt),
             "updatedAt": Timestamp(date: request.updatedAt),
         ]
+    }
+
+    private func rewardData(_ reward: Reward) -> [String: Any] {
+        [
+            "groupId": reward.groupId,
+            "createdBy": reward.createdBy,
+            "title": reward.title,
+            "iconEmoji": reward.iconEmoji,
+            "requiredCoins": reward.requiredCoins,
+            "piggyBankType": reward.piggyBankType.rawValue,
+            "isTarget": reward.isTarget,
+            "expiresInType": reward.expiresInType.rawValue,
+            "expiresInDays": reward.expiresInDays ?? NSNull(),
+            "expiresAt": reward.expiresAt.map(Timestamp.init(date:)) ?? NSNull(),
+            "status": reward.status.rawValue,
+            "createdAt": Timestamp(date: reward.createdAt),
+            "updatedAt": Timestamp(date: reward.updatedAt),
+        ]
+    }
+
+    private func mapTicket(_ snapshot: QueryDocumentSnapshot) throws -> Ticket {
+        let data = snapshot.data()
+        guard let ticketType = PiggyBank.OwnerType(rawValue: data["ticketType"] as? String ?? ""),
+              let status = Ticket.Status(rawValue: data["status"] as? String ?? "")
+        else { throw AppRepositoryError.invalidBackendResponse }
+        return Ticket(
+            id: snapshot.documentID,
+            groupId: data["groupId"] as? String ?? "",
+            rewardId: data["rewardId"] as? String ?? "",
+            issuedBy: data["issuedBy"] as? String ?? "",
+            ownerUserId: data["ownerUserId"] as? String,
+            piggyBankId: data["piggyBankId"] as? String ?? "",
+            ticketType: ticketType,
+            title: data["title"] as? String ?? "ごほうび券",
+            iconEmoji: data["iconEmoji"] as? String ?? "🎁",
+            spentCoins: integer(data["spentCoins"]) ?? 0,
+            status: status,
+            issuedAt: date(data["issuedAt"]),
+            usedAt: optionalDate(data["usedAt"]),
+            usedBy: data["usedBy"] as? String,
+            expiresAt: optionalDate(data["expiresAt"]),
+            createdAt: date(data["createdAt"]),
+            updatedAt: date(data["updatedAt"])
+        )
+    }
+
+    private func ticket(from data: [String: Any]) -> Ticket? {
+        guard let id = data["id"] as? String,
+              let groupId = data["groupId"] as? String,
+              let rewardId = data["rewardId"] as? String,
+              let issuedBy = data["issuedBy"] as? String,
+              let piggyBankId = data["piggyBankId"] as? String,
+              let typeValue = data["ticketType"] as? String,
+              let ticketType = PiggyBank.OwnerType(rawValue: typeValue),
+              let title = data["title"] as? String,
+              let iconEmoji = data["iconEmoji"] as? String,
+              let spentCoins = integer(data["spentCoins"]),
+              let statusValue = data["status"] as? String,
+              let status = Ticket.Status(rawValue: statusValue),
+              let issuedAtValue = data["issuedAt"] as? String,
+              let issuedAt = parseISO8601(issuedAtValue)
+        else { return nil }
+        let expiresAt = (data["expiresAt"] as? String).flatMap(parseISO8601)
+        let usedAt = (data["usedAt"] as? String).flatMap(parseISO8601)
+        let createdAt = (data["createdAt"] as? String).flatMap(parseISO8601) ?? issuedAt
+        let updatedAt = (data["updatedAt"] as? String).flatMap(parseISO8601) ?? issuedAt
+        return Ticket(id: id, groupId: groupId, rewardId: rewardId, issuedBy: issuedBy,
+                      ownerUserId: data["ownerUserId"] as? String, piggyBankId: piggyBankId,
+                      ticketType: ticketType, title: title, iconEmoji: iconEmoji,
+                      spentCoins: spentCoins, status: status, issuedAt: issuedAt,
+                      usedAt: usedAt, usedBy: data["usedBy"] as? String, expiresAt: expiresAt,
+                      createdAt: createdAt, updatedAt: updatedAt)
+    }
+
+    private func record(from data: [String: Any]) -> ActivityRecord? {
+        guard let id = data["id"] as? String,
+              let groupId = data["groupId"] as? String,
+              let userId = data["userId"] as? String,
+              let targetId = data["targetId"] as? String,
+              let title = data["title"] as? String,
+              let iconEmoji = data["iconEmoji"] as? String,
+              let coinDelta = integer(data["coinDelta"]),
+              let piggyBankId = data["piggyBankId"] as? String,
+              let piggyBankName = data["piggyBankName"] as? String,
+              let balanceBefore = integer(data["balanceBefore"]),
+              let balanceAfter = integer(data["balanceAfter"]),
+              let createdAtValue = data["createdAt"] as? String,
+              let createdAt = parseISO8601(createdAtValue)
+        else { return nil }
+        return ActivityRecord(id: id, groupId: groupId, userId: userId, type: .rewardExchange,
+                              targetType: "reward", targetId: targetId, title: title,
+                              iconEmoji: iconEmoji, coinDelta: coinDelta, piggyBankId: piggyBankId,
+                              piggyBankName: piggyBankName, balanceBefore: balanceBefore,
+                              balanceAfter: balanceAfter, status: .active, createdAt: createdAt,
+                              canceledAt: nil)
+    }
+
+    private func ticketUseRecord(from data: [String: Any]) -> ActivityRecord? {
+        guard let id = data["id"] as? String,
+              let groupId = data["groupId"] as? String,
+              let userId = data["userId"] as? String,
+              let targetId = data["targetId"] as? String,
+              let title = data["title"] as? String,
+              let iconEmoji = data["iconEmoji"] as? String,
+              let piggyBankId = data["piggyBankId"] as? String,
+              let piggyBankName = data["piggyBankName"] as? String,
+              let balance = integer(data["balanceAfter"]),
+              let createdAtValue = data["createdAt"] as? String,
+              let createdAt = parseISO8601(createdAtValue)
+        else { return nil }
+        return ActivityRecord(id: id, groupId: groupId, userId: userId, type: .ticketUsed,
+                              targetType: "ticket", targetId: targetId, title: title,
+                              iconEmoji: iconEmoji, coinDelta: 0, piggyBankId: piggyBankId,
+                              piggyBankName: piggyBankName, balanceBefore: balance,
+                              balanceAfter: balance, status: .active, createdAt: createdAt,
+                              canceledAt: nil)
     }
 
     private func integer(_ value: Any?) -> Int? {

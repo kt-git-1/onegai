@@ -37,6 +37,9 @@ enum AppRepositoryError: LocalizedError, Equatable {
     case alreadyInGroup
     case invalidRequest
     case requestNotOwned
+    case invalidReward
+    case rewardNotOwned
+    case insufficientCoins
     case providerNotConfigured
     case invalidBackendResponse
 
@@ -55,6 +58,9 @@ enum AppRepositoryError: LocalizedError, Equatable {
         case .alreadyInGroup: "すでに別の相手と連携しています。"
         case .invalidRequest: "お願いの内容を確認してください。"
         case .requestNotOwned: "このお願いを編集できるのは作成者だけです。"
+        case .invalidReward: "ごほうび券の内容を確認してください。"
+        case .rewardNotOwned: "このごほうび券を編集できるのは作成者だけです。"
+        case .insufficientCoins: "交換に必要なコインが足りません。"
         case .providerNotConfigured: "このログイン方法は現在設定中です。"
         case .invalidBackendResponse: "サーバーから正しい応答を取得できませんでした。"
         }
@@ -76,6 +82,11 @@ protocol AppRepository {
     func createRequest(_ draft: RequestDraft) async throws -> RequestItem
     func updateRequest(_ request: RequestItem, draft: RequestDraft) async throws -> RequestItem
     func hideRequest(_ request: RequestItem) async throws -> RequestItem
+    func createReward(_ draft: RewardDraft) async throws -> Reward
+    func updateReward(_ reward: Reward, draft: RewardDraft) async throws -> Reward
+    func hideReward(_ reward: Reward) async throws -> Reward
+    func exchangeReward(groupId: String, rewardId: String, piggyBankId: String) async throws -> RewardExchangeResult
+    func useTicket(ticketId: String) async throws -> TicketUseResult
     func charinRequest(groupId: String, requestId: String) async throws -> CharinResult
     func cancelCharin(recordId: String) async throws -> CharinCancellationResult
     func observeGroupMemberCount(

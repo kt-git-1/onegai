@@ -123,7 +123,7 @@ MVPでは権限差はほぼなし。
   "ownerUserId": "uid1",
   "name": "花男の貯金箱",
   "balance": 520,
-  "targetRewardId": "rewardId",
+  "targetRewardId": null,
   "status": "active",
   "createdAt": "timestamp",
   "updatedAt": "timestamp"
@@ -133,6 +133,9 @@ MVPでは権限差はほぼなし。
 ### ownerType
 - personal
 - shared
+
+### targetRewardId
+後方互換のためフィールドは残すが、Priority 1では常に `null` とし選定には使用しない。ホーム表示は未交換のrewardsから現在残高との差が最小の1件を動的に選ぶ。
 
 sharedの場合：
 
@@ -204,7 +207,7 @@ MVPでは削除ではなく `hidden`。
   "iconEmoji": "☕",
   "requiredCoins": 700,
   "piggyBankType": "personal",
-  "isTarget": true,
+  "isTarget": false,
   "expiresInType": "none",
   "expiresInDays": null,
   "expiresAt": null,
@@ -234,6 +237,8 @@ MVPでは削除ではなく `hidden`。
 ### 重要
 発行済みチケットには編集内容を反映しない。  
 交換時に必要情報を `tickets` にコピーする。
+同じ `rewardId` の有効なticketは1件だけ発行できる。発行済みのrewardは候補から外し、次に近い未交換rewardを自動表示する。
+`isTarget` は後方互換のため残すが、Priority 1の選定には使用しない。
 
 ---
 

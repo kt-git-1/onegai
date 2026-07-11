@@ -50,6 +50,7 @@ struct HomeView: View {
     @EnvironmentObject private var appState: AppState
     @State private var selectedBankIndex: Int
     @State private var charinRequest: RequestItem?
+    @State private var exchangeSelection: RewardExchangeSelection?
 
     init() {
         #if DEBUG
@@ -115,8 +116,11 @@ struct HomeView: View {
                         ForEach(Array(banks.enumerated()), id: \.element.id) { index, bank in
                             BankCard(
                                 bank: bank,
-                                targetReward: appState.initialTemplate?.rewards.first { $0.id == bank.targetRewardId },
-                                onSelectTarget: { appState.selectedTab = 2 }
+                                targetReward: appState.nearestReward(for: bank),
+                                onSelectTarget: { appState.presentRewardCreation() },
+                                onExchange: { reward in
+                                    exchangeSelection = RewardExchangeSelection(reward: reward, bank: bank)
+                                }
                             )
                             .padding(.horizontal, 1)
                             .tag(index)
@@ -167,6 +171,20 @@ struct HomeView: View {
             CharinConfirmationSheet(request: request)
                 .presentationDetents([.height(430)])
         }
+        .sheet(item: $exchangeSelection) { selection in
+            RewardExchangeConfirmationView(reward: selection.reward, bank: selection.bank)
+                .presentationDetents([.height(430)])
+        }
+        .fullScreenCover(item: $appState.issuedTicket) { ticket in
+            TicketIssuedView(
+                ticket: ticket,
+                onViewTickets: {
+                    appState.presentUsableTickets()
+                    appState.issuedTicket = nil
+                },
+                onClose: { appState.issuedTicket = nil }
+            )
+        }
     }
 }
 
@@ -174,6 +192,7 @@ private struct BankCard: View {
     let bank: PiggyBank
     let targetReward: Reward?
     let onSelectTarget: () -> Void
+    let onExchange: (Reward) -> Void
 
     private var remainingCoins: Int {
         max((targetReward?.requiredCoins ?? 0) - bank.balance, 0)
@@ -206,21 +225,32 @@ private struct BankCard: View {
             Text("\(bank.balance.formatted())コイン")
                 .font(.system(size: 28, weight: .bold)).monospacedDigit()
             if let targetReward {
-                Text("目標：\(targetReward.iconEmoji) \(targetReward.title)")
+                Text("次のごほうび：\(targetReward.iconEmoji) \(targetReward.title)")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.appSecondary)
                     .lineLimit(1)
-                Text(remainingCoins == 0 ? "交換できます" : "あと\(remainingCoins.formatted())コイン")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.appHeart)
-                ProgressView(value: progress)
-                    .tint(Color.appPrimary)
-                    .padding(.horizontal, 20)
+                if remainingCoins == 0 {
+                    Button("交換する") { onExchange(targetReward) }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.appText)
+                        .padding(.horizontal, 18)
+                        .frame(height: 36)
+                        .background(Color.appPrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .accessibilityIdentifier("home-exchange-reward-button")
+                } else {
+                    Text("あと\(remainingCoins.formatted())コイン")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.appHeart)
+                    ProgressView(value: progress)
+                        .tint(Color.appPrimary)
+                        .padding(.horizontal, 20)
+                }
             } else {
-                Text("目標のごほうび券を選ぼう")
+                Text("ごほうび券を作ろう")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.appSecondary)
-                Button("ごほうび券を選ぶ", action: onSelectTarget)
+                Button("ごほうび券を作る", action: onSelectTarget)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.appText)
                     .padding(.horizontal, 16)
@@ -631,7 +661,7 @@ struct CharinConfirmationSheet: View {
     let request: RequestItem
 
     private var bank: PiggyBank? { appState.piggyBank(for: request) }
-    private var reward: Reward? { bank.flatMap(appState.targetReward(for:)) }
+    private var reward: Reward? { bank.flatMap(appState.nearestReward(for:)) }
     private var remainingCoins: Int? {
         guard let bank, let reward else { return nil }
         return max(reward.requiredCoins - bank.balance - request.coinAmount, 0)
@@ -983,26 +1013,1004 @@ struct CharinUndoToast: View {
 }
 
 struct RewardsView: View {
-    @State private var owned = false
+    private enum SectionTab: String, CaseIterable {
+        case rewards = "ごほうび券"
+        case tickets = "持っている券"
+    }
+
+    private enum RewardStatusFilter: String, CaseIterable {
+        case nearest = "あと少し"
+        case exchangeable = "交換できる"
+        case all = "すべて"
+    }
+
+    private enum BankFilter: String, CaseIterable {
+        case all = "すべて"
+        case personal = "自分"
+        case shared = "ふたり"
+    }
+
+    private enum TicketFilter: String, CaseIterable {
+        case unused = "使える券"
+        case used = "使った券"
+    }
+
+    @EnvironmentObject private var appState: AppState
+    @State private var section: SectionTab = .rewards
+    @State private var statusFilter: RewardStatusFilter = .nearest
+    @State private var bankFilter: BankFilter = .all
+    @State private var editorRoute: RewardEditorRoute?
+    @State private var expandedRewardId: String?
+    @State private var exchangeSelection: RewardExchangeSelection?
+    @State private var ticketFilter: TicketFilter = .unused
+    @State private var selectedTicket: Ticket?
+
+    init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-previewRewardEditor") {
+            _statusFilter = State(initialValue: .all)
+            _editorRoute = State(initialValue: .create)
+        }
+        #endif
+    }
+
+    private var activeRewards: [Reward] {
+        (appState.initialTemplate?.rewards ?? [])
+            .filter { $0.status == .active }
+            .filter(matchesBankFilter)
+            .filter { reward in
+                switch statusFilter {
+                case .nearest: nearestRewardIds.contains(reward.id)
+                case .exchangeable: isExchangeable(reward)
+                case .all: true
+                }
+            }
+            .sorted { lhs, rhs in
+                if appState.hasExchangedReward(lhs) != appState.hasExchangedReward(rhs) {
+                    return !appState.hasExchangedReward(lhs)
+                }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+    }
+
+    private var nearestRewardIds: Set<String> {
+        let banks = appState.initialTemplate?.piggyBanks.filter { $0.status == .active } ?? []
+        return Set(banks.compactMap { appState.nearestReward(for: $0)?.id })
+    }
+
+    private func bank(for reward: Reward) -> PiggyBank? {
+        let banks = appState.initialTemplate?.piggyBanks ?? []
+        switch reward.piggyBankType {
+        case .personal:
+            return banks.first {
+                $0.status == .active && $0.ownerType == .personal &&
+                ($0.ownerUserId == reward.createdBy || $0.ownerUserId == appState.authenticatedUser?.id)
+            }
+        case .shared:
+            return banks.first { $0.status == .active && $0.ownerType == .shared }
+        }
+    }
+
+    private func matchesBankFilter(_ reward: Reward) -> Bool {
+        switch bankFilter {
+        case .all: true
+        case .personal: reward.piggyBankType == .personal
+        case .shared: reward.piggyBankType == .shared
+        }
+    }
+
+    private func isExchangeable(_ reward: Reward) -> Bool {
+        guard !appState.hasExchangedReward(reward) else { return false }
+        guard let bank = bank(for: reward) else { return false }
+        return bank.balance >= reward.requiredCoins
+    }
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("券", selection: $section) {
+                ForEach(SectionTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue)
+                        .tag(tab)
+                        .accessibilityIdentifier("reward-section-\(tab == .rewards ? "rewards" : "tickets")")
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+
+            if section == .rewards {
+                rewardList
+            } else {
+                ticketContent
+            }
+        }
+        .background(Color.appBackground)
+        .navigationTitle("ごほうび")
+        .toolbar {
+            Button {
+                statusFilter = .all
+                bankFilter = .all
+                editorRoute = .create
+            } label: {
+                Image(systemName: "plus")
+            }
+            .accessibilityLabel("ごほうび券を追加")
+            .accessibilityIdentifier("add-reward-button")
+        }
+        .sheet(item: $editorRoute) { route in
+            NavigationStack {
+                switch route {
+                case .create:
+                    RewardEditorView(reward: nil)
+                case .edit(let reward):
+                    RewardEditorView(reward: reward)
+                }
+            }
+        }
+        .sheet(item: $exchangeSelection) { selection in
+            RewardExchangeConfirmationView(reward: selection.reward, bank: selection.bank)
+                .presentationDetents([.height(430)])
+        }
+        .sheet(item: $selectedTicket) { ticket in
+            NavigationStack { TicketDetailView(ticket: ticket) }
+        }
+        .fullScreenCover(item: $appState.issuedTicket) { ticket in
+            TicketIssuedView(
+                ticket: ticket,
+                onViewTickets: {
+                    section = .tickets
+                    ticketFilter = .unused
+                    appState.issuedTicket = nil
+                },
+                onClose: { appState.issuedTicket = nil }
+            )
+        }
+        .onChange(of: statusFilter) { expandedRewardId = nil }
+        .onChange(of: bankFilter) { expandedRewardId = nil }
+        .onAppear {
+            if appState.rewardCreationRequested {
+                statusFilter = .all
+                bankFilter = .all
+                editorRoute = .create
+                appState.rewardCreationRequested = false
+            }
+            if appState.usableTicketsRequested {
+                section = .tickets
+                ticketFilter = .unused
+                appState.usableTicketsRequested = false
+            }
+        }
+    }
+
+    private var rewardList: some View {
         VStack(spacing: 12) {
-            Picker("券", selection: $owned) {
-                Text("ごほうび券").tag(false)
-                Text("持っている券").tag(true)
+            Picker("状態", selection: $statusFilter) {
+                ForEach(RewardStatusFilter.allCases, id: \.self) { filter in
+                    Text(filter.rawValue)
+                        .tag(filter)
+                        .accessibilityIdentifier("reward-status-\(filter.rawValue)")
+                }
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 16)
 
-            List {
-                Label(owned ? "スタバごほうび券　使用する" : "スタバごほうび券　700コイン", systemImage: "cup.and.heat.waves.fill")
-                Label(owned ? "映画ごほうび券　使用する" : "映画ごほうび券　1,200コイン", systemImage: "film.fill")
-                Label(owned ? "焼肉デート券　使用する" : "焼肉デート券　5,000コイン", systemImage: "fork.knife")
+            HStack(spacing: 8) {
+                ForEach(BankFilter.allCases, id: \.self) { filter in
+                    Button {
+                        bankFilter = filter
+                    } label: {
+                        Text(filter.rawValue)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(bankFilter == filter ? Color.appText : Color.appSecondary)
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                            .background(bankFilter == filter ? Color.appPrimary : Color.appSurface)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("reward-bank-filter-\(filter.rawValue)")
+                }
             }
-            .scrollContentBackground(.hidden)
+            .padding(.horizontal, 16)
+
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    if activeRewards.isEmpty {
+                        RewardEmptyState(statusFilter: statusFilter.rawValue)
+                    } else {
+                        ForEach(activeRewards) { reward in
+                            RewardCard(
+                                reward: reward,
+                                bank: bank(for: reward),
+                                isExchangeable: isExchangeable(reward),
+                                isExchanged: appState.hasExchangedReward(reward),
+                                isExpanded: expandedRewardId == reward.id,
+                                canEdit: reward.createdBy == appState.authenticatedUser?.id,
+                                onTap: {
+                                    guard reward.createdBy == appState.authenticatedUser?.id else { return }
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        expandedRewardId = expandedRewardId == reward.id ? nil : reward.id
+                                    }
+                                },
+                                onEdit: { editorRoute = .edit(reward) },
+                                onExchange: {
+                                    guard let bank = bank(for: reward) else { return }
+                                    exchangeSelection = RewardExchangeSelection(reward: reward, bank: bank)
+                                }
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var ticketContent: some View {
+        let filteredTickets = appState.tickets.filter {
+            ticketFilter == .unused ? $0.status == .unused : $0.status == .used
+        }
+        VStack(spacing: 12) {
+            Picker("券の状態", selection: $ticketFilter) {
+                ForEach(TicketFilter.allCases, id: \.self) { filter in
+                    Text(filter.rawValue)
+                        .tag(filter)
+                        .accessibilityIdentifier("ticket-filter-\(filter == .unused ? "unused" : "used")")
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+
+            if filteredTickets.isEmpty {
+                ticketEmptyState
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(filteredTickets) { ticket in
+                            TicketListCard(ticket: ticket) { selectedTicket = ticket }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                }
+            }
+        }
+    }
+
+    private var ticketEmptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "ticket")
+                .font(.system(size: 38, weight: .medium))
+                .foregroundStyle(Color.appSecondary)
+            Text("まだ持っている券がありません")
+                .font(.system(size: 18, weight: .bold))
+            Text("ごほうび券を交換してみよう")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color.appSecondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct RewardExchangeSelection: Identifiable {
+    let reward: Reward
+    let bank: PiggyBank
+    var id: String { reward.id }
+}
+
+private enum RewardEditorRoute: Identifiable {
+    case create
+    case edit(Reward)
+
+    var id: String {
+        switch self {
+        case .create: "create"
+        case .edit(let reward): "edit-\(reward.id)"
+        }
+    }
+}
+
+private struct RewardCard: View {
+    let reward: Reward
+    let bank: PiggyBank?
+    let isExchangeable: Bool
+    let isExchanged: Bool
+    let isExpanded: Bool
+    let canEdit: Bool
+    let onTap: () -> Void
+    let onEdit: () -> Void
+    let onExchange: () -> Void
+
+    private var balance: Int { bank?.balance ?? 0 }
+    private var progress: Double {
+        guard reward.requiredCoins > 0 else { return 0 }
+        return min(Double(balance) / Double(reward.requiredCoins), 1)
+    }
+    private var remaining: Int { max(reward.requiredCoins - balance, 0) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                Text(reward.iconEmoji)
+                    .font(.system(size: 32))
+                    .frame(width: 52, height: 52)
+                    .background(Color.appPrimarySoft)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 6) {
+                        Text(reward.title)
+                            .font(.system(size: 17, weight: .bold))
+                            .lineLimit(2)
+                    }
+                    Label(
+                        reward.piggyBankType == .shared ? "ふたりの貯金箱" : "自分の貯金箱",
+                        systemImage: reward.piggyBankType == .shared ? "person.2.fill" : "person.fill"
+                    )
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.appSecondary)
+                }
+                    Spacer(minLength: 4)
+                    if canEdit {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.appSecondary)
+                    }
+                }
+
+                HStack(alignment: .firstTextBaseline) {
+                Text("必要コイン")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.appSecondary)
+                Spacer()
+                Text("\(reward.requiredCoins.formatted())")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                Text("コイン")
+                    .font(.system(size: 13, weight: .semibold))
+                }
+
+                ProgressView(value: progress)
+                    .tint(isExchangeable ? Color.appSuccess : Color.appPrimary)
+
+                HStack {
+                Text("\(balance.formatted()) / \(reward.requiredCoins.formatted())コイン")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.appSecondary)
+                Spacer()
+                if isExchanged {
+                    Label("交換済み", systemImage: "checkmark.seal.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color.appSecondary)
+                } else if isExchangeable {
+                    Label("交換できます", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color.appSuccess)
+                } else {
+                    Text("あと\(remaining.formatted())コイン")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color.appHeart)
+                }
+                }
+
+                if isExchangeable {
+                    Button("交換する", action: onExchange)
+                        .buttonStyle(PrimaryButtonStyle())
+                        .accessibilityIdentifier("exchange-reward-\(reward.id)")
+                }
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+
+            if isExpanded && canEdit {
+                Divider()
+                Button(action: onEdit) {
+                    Label("編集", systemImage: "pencil")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.appHeart)
+                .accessibilityIdentifier("edit-reward-\(reward.id)")
+            }
+        }
+        .background(Color.appSurface)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("reward-card-\(reward.id)")
+    }
+}
+
+private struct RewardExchangeConfirmationView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let reward: Reward
+    let bank: PiggyBank
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Capsule().fill(Color.appBorder).frame(width: 38, height: 5)
+            Text(reward.iconEmoji).font(.system(size: 48))
+            Text("\(reward.title)を\n交換しますか？")
+                .font(.system(size: 22, weight: .bold))
+                .multilineTextAlignment(.center)
+            Text("\(reward.requiredCoins.formatted())コインを使って\nごほうび券を発行します。")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.appSecondary)
+                .multilineTextAlignment(.center)
+            VStack(spacing: 4) {
+                Text("交換後の残高")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.appSecondary)
+                Text("\(bank.balance.formatted()) → \((bank.balance - reward.requiredCoins).formatted())コイン")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+            }
+            if let error = appState.errorMessage {
+                Text(error).font(.footnote).foregroundStyle(Color.appError)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 12) {
+                Button("キャンセル") { dismiss() }.buttonStyle(SecondaryButtonStyle())
+                Button("交換する") {
+                    Task {
+                        if await appState.exchangeReward(reward, from: bank) { dismiss() }
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(appState.isProcessing)
+                .accessibilityIdentifier("confirm-exchange-reward-button")
+            }
+        }
+        .padding(16)
+        .background(Color.appBackground)
+        .onAppear { appState.clearError() }
+    }
+}
+
+private struct TicketIssuedView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let ticket: Ticket
+    let onViewTickets: () -> Void
+    let onClose: () -> Void
+    @State private var cardScale: CGFloat = 0.72
+    @State private var cardOpacity = 0.0
+    @State private var glowOpacity = 0.0
+    @State private var burstProgress: CGFloat = 0
+    @State private var burstOpacity = 0.0
+    @State private var titleScale: CGFloat = 0.82
+
+    private var giftSourceText: String {
+        "\(appState.partnerProfile?.displayName ?? "相手")からのごほうび"
+    }
+
+    var body: some View {
+        ZStack {
+            Color.appBackground.ignoresSafeArea()
+            Circle()
+                .fill(Color.appPrimary.opacity(glowOpacity))
+                .frame(width: 330, height: 330)
+                .blur(radius: 38)
+                .offset(y: -170)
+
+            VStack(spacing: 18) {
+                Spacer(minLength: 28)
+
+                Text("やった！")
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.appHeart)
+                    .scaleEffect(titleScale)
+                    .shadow(color: Color.appHeart.opacity(glowOpacity), radius: 10)
+                Text("ごほうび券を発行しました")
+                    .font(.system(size: 20, weight: .bold))
+
+                ZStack {
+                    CelebrationBurst(progress: burstProgress, isShared: false)
+                        .frame(width: 360, height: 290)
+                        .opacity(burstOpacity)
+
+                    VStack(spacing: 13) {
+                        HStack {
+                            Image(systemName: "gift.fill")
+                            Text(giftSourceText)
+                            Spacer()
+                            Image(systemName: "heart.fill")
+                        }
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color.appText)
+                        .padding(.horizontal, 18)
+                        .frame(height: 48)
+                        .background(Color.appPrimary)
+
+                        Text(ticket.iconEmoji)
+                            .font(.system(size: 72))
+                            .frame(height: 86)
+                        Text(ticket.title)
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.76)
+                            .padding(.horizontal, 16)
+                        Text("相手に見せて使おう")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.appSecondary)
+                            .padding(.bottom, 18)
+                    }
+                    .frame(width: 310)
+                    .background(Color.appSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
+                    .shadow(color: Color.appPrimary.opacity(0.26), radius: 20, y: 10)
+                    .scaleEffect(cardScale)
+                    .opacity(cardOpacity)
+                }
+                .frame(height: 310)
+
+                Text("次の楽しみが、ひとつ増えました")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.appSecondary)
+
+                Spacer(minLength: 20)
+                Button("持っている券を見る", action: onViewTickets)
+                    .buttonStyle(PrimaryButtonStyle())
+                Button("閉じる", action: onClose)
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 18)
+        }
+        .accessibilityIdentifier("ticket-issued-view")
+        .task {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            if reduceMotion {
+                cardScale = 1
+                cardOpacity = 1
+                titleScale = 1
+                return
+            }
+            withAnimation(.spring(response: 0.58, dampingFraction: 0.62)) {
+                cardScale = 1
+                cardOpacity = 1
+                titleScale = 1.08
+                glowOpacity = 0.5
+            }
+            try? await Task.sleep(for: .milliseconds(180))
+            burstOpacity = 1
+            try? await Task.sleep(for: .milliseconds(24))
+            withAnimation(.easeOut(duration: 0.8)) { burstProgress = 1 }
+            try? await Task.sleep(for: .milliseconds(220))
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) {
+                titleScale = 1
+                glowOpacity = 0.22
+            }
+        }
+    }
+}
+
+private struct TicketListCard: View {
+    let ticket: Ticket
+    let onShow: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(ticket.iconEmoji)
+                .font(.system(size: 34))
+                .frame(width: 54, height: 54)
+                .background(Color.appPrimarySoft)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(ticket.title).font(.system(size: 17, weight: .bold))
+                Text(ticket.ticketType == .shared ? "ふたりの券" : "個人の券")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.appSecondary)
+                Text(ticket.status == .used ?
+                     "使用日：\(ticket.usedAt?.formatted(date: .abbreviated, time: .omitted) ?? "-")" :
+                     (ticket.expiresAt.map { "期限：\($0.formatted(date: .abbreviated, time: .omitted))" } ?? "期限なし"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.appSecondary)
+            }
+            Spacer()
+            Button("券を表示", action: onShow)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color.appHeart)
+                .accessibilityIdentifier("show-ticket-\(ticket.id)")
+        }
+        .padding(16)
+        .background(Color.appSurface)
+        .opacity(ticket.status == .used ? 0.58 : 1)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("ticket-card-\(ticket.id)")
+    }
+}
+
+private struct TicketDetailView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let ticket: Ticket
+    @State private var showsUseConfirmation = false
+    @State private var celebrationPulse = false
+    @State private var shimmerOffset: CGFloat = -280
+
+    private var currentTicket: Ticket {
+        appState.tickets.first { $0.id == ticket.id } ?? ticket
+    }
+
+    private var giftSourceText: String {
+        "\(appState.partnerProfile?.displayName ?? "相手")からのごほうび"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "gift.fill")
+                            .font(.system(size: 20, weight: .bold))
+                        Text(giftSourceText)
+                            .font(.system(size: 16, weight: .bold))
+                        Spacer()
+                        Label(
+                            currentTicket.ticketType == .shared ? "ふたり" : "個人",
+                            systemImage: currentTicket.ticketType == .shared ? "person.2.fill" : "person.fill"
+                        )
+                        .font(.system(size: 12, weight: .bold))
+                    }
+                    .foregroundStyle(Color.appText)
+                    .padding(.horizontal, 20)
+                    .frame(height: 58)
+                    .background(currentTicket.status == .used ? Color.appBorder : Color.appPrimary)
+                    .overlay {
+                        if currentTicket.status == .unused && !reduceMotion {
+                            Capsule()
+                                .fill(Color.white.opacity(0.34))
+                                .frame(width: 54, height: 100)
+                                .rotationEffect(.degrees(20))
+                                .blur(radius: 7)
+                                .offset(x: shimmerOffset)
+                        }
+                    }
+                    .clipped()
+
+                    VStack(spacing: 18) {
+                        ZStack {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(Color.appHeart.opacity(0.2))
+                                .rotationEffect(.degrees(celebrationPulse ? -10 : 5))
+                                .scaleEffect(celebrationPulse ? 1.16 : 0.92)
+                                .offset(x: -76, y: celebrationPulse ? -41 : -31)
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(Color.appAccent)
+                                .rotationEffect(.degrees(celebrationPulse ? 12 : -8))
+                                .scaleEffect(celebrationPulse ? 1.2 : 0.86)
+                                .offset(x: 82, y: celebrationPulse ? -31 : -43)
+                            Text(currentTicket.iconEmoji)
+                                .font(.system(size: 94))
+                                .minimumScaleFactor(0.8)
+                                .scaleEffect(celebrationPulse ? 1.035 : 0.985)
+                                .offset(y: celebrationPulse ? -5 : 3)
+                        }
+                        .frame(height: 128)
+
+                        Text(currentTicket.title)
+                            .font(.system(size: 29, weight: .bold, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.75)
+
+                        Text(currentTicket.status == .used ? "この券は使用済みです" : "この券を相手に見せて\n使ってください")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(currentTicket.status == .used ? Color.appSecondary : Color.appText)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 30)
+
+                    TicketPerforationDivider()
+
+                    VStack(spacing: 14) {
+                        TicketDetailRow(label: "発行日", value: currentTicket.issuedAt.formatted(date: .numeric, time: .omitted))
+                        TicketDetailRow(label: "期限", value: currentTicket.expiresAt?.formatted(date: .numeric, time: .omitted) ?? "なし")
+                        if let usedAt = currentTicket.usedAt {
+                            TicketDetailRow(label: "使用日", value: usedAt.formatted(date: .numeric, time: .omitted))
+                        }
+                    }
+                    .padding(20)
+                }
+                .background(Color.appSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
+                .shadow(color: Color.appPrimary.opacity(0.2), radius: 18, y: 8)
+                .opacity(currentTicket.status == .used ? 0.68 : 1)
+
+                if currentTicket.status == .unused {
+                    Button("使用済みにする") { showsUseConfirmation = true }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(appState.isProcessing)
+                        .accessibilityIdentifier("use-ticket-button")
+                }
+                if let error = appState.errorMessage {
+                    Text(error).font(.footnote).foregroundStyle(Color.appError)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
         }
         .background(Color.appBackground)
-        .navigationTitle("ごほうび")
+        .navigationTitle("ごほうび券")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } }
+        }
+        .confirmationDialog(
+            "使用済みにしますか？",
+            isPresented: $showsUseConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("使用済みにする", role: .destructive) {
+                Task {
+                    if await appState.useTicket(currentTicket) {
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        try? await Task.sleep(for: .milliseconds(900))
+                        dismiss()
+                    }
+                }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("一度使用済みにすると戻せません。")
+        }
+        .onAppear { appState.clearError() }
+        .task(id: currentTicket.status) {
+            guard currentTicket.status == .unused, !reduceMotion else {
+                celebrationPulse = false
+                shimmerOffset = -280
+                return
+            }
+            withAnimation(.easeInOut(duration: 1.45).repeatForever(autoreverses: true)) {
+                celebrationPulse = true
+            }
+            withAnimation(.linear(duration: 2.35).repeatForever(autoreverses: false)) {
+                shimmerOffset = 280
+            }
+        }
+    }
+}
+
+private struct TicketPerforationDivider: View {
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                HStack(spacing: 6) {
+                    ForEach(0..<28, id: \.self) { _ in
+                        Capsule()
+                            .fill(Color.appBorder)
+                            .frame(width: 7, height: 2)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                Circle()
+                    .fill(Color.appBackground)
+                    .frame(width: 22, height: 22)
+                    .position(x: 0, y: 11)
+                Circle()
+                    .fill(Color.appBackground)
+                    .frame(width: 22, height: 22)
+                    .position(x: proxy.size.width, y: 11)
+            }
+        }
+        .frame(height: 22)
+    }
+}
+
+private struct TicketDetailRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(label).foregroundStyle(Color.appSecondary)
+            Spacer()
+            Text(value).fontWeight(.semibold)
+        }
+        .font(.system(size: 15))
+    }
+}
+
+private struct RewardEditorView: View {
+    private enum ExpirySelection: String, CaseIterable {
+        case none = "期限なし"
+        case sevenDays = "7日"
+        case thirtyDays = "30日"
+        case date = "日付指定"
+    }
+
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    let reward: Reward?
+    @State private var title: String
+    @State private var iconEmoji: String
+    @State private var requiredCoins: Int
+    @State private var bankType: PiggyBank.OwnerType
+    @State private var expirySelection: ExpirySelection
+    @State private var expiryDate: Date
+    @State private var showsHideConfirmation = false
+
+    private let emojiOptions = ["☕️", "🍰", "🍿", "🎬", "🍖", "🍽️", "🎁", "🧖", "🎟️", "❤️"]
+
+    init(reward: Reward?) {
+        self.reward = reward
+        _title = State(initialValue: reward?.title ?? "")
+        _iconEmoji = State(initialValue: reward?.iconEmoji ?? "🎁")
+        _requiredCoins = State(initialValue: reward?.requiredCoins ?? 500)
+        _bankType = State(initialValue: reward?.piggyBankType ?? .personal)
+        let selection: ExpirySelection = switch reward?.expiresInType {
+        case .days where reward?.expiresInDays == 7: .sevenDays
+        case .days: .thirtyDays
+        case .date: .date
+        default: .none
+        }
+        _expirySelection = State(initialValue: selection)
+        _expiryDate = State(initialValue: reward?.expiresAt ?? Calendar.current.date(byAdding: .day, value: 30, to: Date())!)
+    }
+
+    private var draft: RewardDraft {
+        let expiry: (Reward.ExpiryType, Int?, Date?) = switch expirySelection {
+        case .none: (.none, nil, nil)
+        case .sevenDays: (.days, 7, nil)
+        case .thirtyDays: (.days, 30, nil)
+        case .date: (.date, nil, expiryDate)
+        }
+        return RewardDraft(
+            title: title,
+            iconEmoji: iconEmoji,
+            requiredCoins: requiredCoins,
+            piggyBankType: bankType,
+            expiresInType: expiry.0,
+            expiresInDays: expiry.1,
+            expiresAt: expiry.2
+        )
+    }
+
+    private var canSave: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        requiredCoins > 0 &&
+        (expirySelection != .date || expiryDate > Date()) &&
+        !appState.isProcessing
+    }
+
+    var body: some View {
+        Form {
+            Section("ごほうび券") {
+                Picker("アイコン", selection: $iconEmoji) {
+                    ForEach(emojiOptions, id: \.self) { emoji in
+                        Text(emoji).tag(emoji)
+                    }
+                }
+                TextField("ごほうび券の名前", text: $title)
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("reward-title-field")
+            }
+
+            Section("必要コイン") {
+                TextField("必要コイン", value: $requiredCoins, format: .number)
+                    .keyboardType(.numberPad)
+                    .accessibilityIdentifier("reward-coins-field")
+                Stepper("\(requiredCoins.formatted())コイン", value: $requiredCoins, in: 50...100_000, step: 50)
+            }
+
+            Section("貯金箱") {
+                Picker("貯金箱", selection: $bankType) {
+                    Text("自分").tag(PiggyBank.OwnerType.personal)
+                    Text("ふたり").tag(PiggyBank.OwnerType.shared)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section("期限") {
+                Picker("期限", selection: $expirySelection) {
+                    ForEach(ExpirySelection.allCases, id: \.self) { selection in
+                        Text(selection.rawValue).tag(selection)
+                    }
+                }
+                if expirySelection == .date {
+                    DatePicker(
+                        "日付",
+                        selection: $expiryDate,
+                        in: Date()...,
+                        displayedComponents: .date
+                    )
+                }
+            }
+
+            if let errorMessage = appState.errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(Color.appError)
+                }
+            }
+
+            if reward != nil {
+                Section {
+                    Button("このごほうび券を非表示にする", role: .destructive) {
+                        showsHideConfirmation = true
+                    }
+                    .disabled(appState.isProcessing)
+                }
+            }
+        }
+        .navigationTitle(reward == nil ? "ごほうび券を作る" : "ごほうび券を編集")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("キャンセル") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("保存する") { save() }
+                    .fontWeight(.semibold)
+                    .disabled(!canSave)
+                    .accessibilityIdentifier("save-reward-button")
+            }
+        }
+        .confirmationDialog(
+            "このごほうび券を非表示にしますか？",
+            isPresented: $showsHideConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("非表示にする", role: .destructive) { hide() }
+            Button("キャンセル", role: .cancel) {}
+        }
+        .onAppear { appState.clearError() }
+    }
+
+    private func save() {
+        Task {
+            let succeeded: Bool
+            if let reward {
+                succeeded = await appState.updateReward(reward, draft: draft)
+            } else {
+                succeeded = await appState.createReward(draft)
+            }
+            if succeeded { dismiss() }
+        }
+    }
+
+    private func hide() {
+        guard let reward else { return }
+        Task {
+            if await appState.hideReward(reward) { dismiss() }
+        }
+    }
+}
+
+private struct RewardEmptyState: View {
+    let statusFilter: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "ticket")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(Color.appSecondary)
+            Text("\(statusFilter)のごほうび券はありません")
+                .font(.system(size: 16, weight: .bold))
+            Text("条件を変えると、ほかの券を確認できます")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.appSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 64)
     }
 }
 

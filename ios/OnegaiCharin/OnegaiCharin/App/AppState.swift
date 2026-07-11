@@ -23,6 +23,8 @@ final class AppState: ObservableObject {
     @Published var displayName = ""
     @Published var selectedEmoji: String?
     @Published var selectedTab = 0
+    @Published var rewardCreationRequested = false
+    @Published var usableTicketsRequested = false
     @Published private(set) var isProcessing = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var authenticatedUser: AuthUser?
@@ -32,6 +34,8 @@ final class AppState: ObservableObject {
     @Published private(set) var pendingInvite: InvitePreview?
     @Published private(set) var partnerProfile: UserProfile?
     @Published private(set) var records: [ActivityRecord] = []
+    @Published private(set) var tickets: [Ticket] = []
+    @Published var issuedTicket: Ticket?
     @Published private(set) var activeCharin: CharinResult?
     @Published private(set) var pendingCharinUndo: PendingCharinUndo?
 
@@ -98,12 +102,12 @@ final class AppState: ObservableObject {
                         requestStatus: .active,
                         completionCount: shared ? 4 : 8,
                         targetReward: TargetRewardProgress(
-                            id: shared ? "reward-yakiniku" : "reward-coffee",
-                            title: shared ? "焼肉デートごほうび券" : "スタバごほうび券",
-                            iconEmoji: shared ? "🍖" : "☕️",
-                            remainingCoins: shared ? 2_200 : 180,
-                            isExchangeable: false,
-                            becameExchangeable: false
+                            id: shared ? "reward-yakiniku" : "reward-sweets",
+                            title: shared ? "焼肉デートごほうび券" : "コンビニスイーツ券",
+                            iconEmoji: shared ? "🍖" : "🍰",
+                            remainingCoins: shared ? 2_200 : 0,
+                            isExchangeable: !shared,
+                            becameExchangeable: !shared
                         )
                     )
                     pendingCharinUndo = PendingCharinUndo(recordId: record.id, expiresAt: Date().addingTimeInterval(Self.charinUndoDuration))
@@ -119,6 +123,17 @@ final class AppState: ObservableObject {
                 partnerProfile = Self.makePreviewProfile(id: "partner-preview", name: "花子", emoji: "🌷", groupId: template.group.id)
                 initialTemplate = template
                 records = Self.makePreviewRecords(groupId: template.group.id)
+                if arguments.contains("-previewIssuedTicket") {
+                    let now = Date()
+                    issuedTicket = Ticket(
+                        id: "ticket-issued-preview", groupId: template.group.id, rewardId: "reward-sweets",
+                        issuedBy: "user-preview", ownerUserId: "user-preview",
+                        piggyBankId: "bank-personal", ticketType: .personal,
+                        title: "コンビニスイーツ券", iconEmoji: "🍰", spentCoins: 500,
+                        status: .unused, issuedAt: now, usedAt: nil, usedBy: nil,
+                        expiresAt: nil, createdAt: now, updatedAt: now
+                    )
+                }
                 if let localRepository = self.repository as? LocalAppRepository,
                    let profile {
                     localRepository.seedPreview(
@@ -178,12 +193,13 @@ final class AppState: ObservableObject {
             usedBy: joined ? "partner-preview" : nil
         )
         let rewards = [
-            Reward(id: "reward-coffee", groupId: group.id, createdBy: "user-preview", title: "スタバごほうび券", iconEmoji: "☕️", requiredCoins: 700, piggyBankType: .personal, isTarget: true, expiresInType: .none, expiresInDays: nil, expiresAt: nil, status: .active, createdAt: now, updatedAt: now),
-            Reward(id: "reward-yakiniku", groupId: group.id, createdBy: "user-preview", title: "焼肉デートごほうび券", iconEmoji: "🍖", requiredCoins: 5_000, piggyBankType: .shared, isTarget: true, expiresInType: .none, expiresInDays: nil, expiresAt: nil, status: .active, createdAt: now, updatedAt: now),
+            Reward(id: "reward-coffee", groupId: group.id, createdBy: "user-preview", title: "スタバごほうび券", iconEmoji: "☕️", requiredCoins: 700, piggyBankType: .personal, isTarget: false, expiresInType: .none, expiresInDays: nil, expiresAt: nil, status: .active, createdAt: now, updatedAt: now),
+            Reward(id: "reward-sweets", groupId: group.id, createdBy: "user-preview", title: "コンビニスイーツ券", iconEmoji: "🍰", requiredCoins: 500, piggyBankType: .personal, isTarget: false, expiresInType: .none, expiresInDays: nil, expiresAt: nil, status: .active, createdAt: now, updatedAt: now),
+            Reward(id: "reward-yakiniku", groupId: group.id, createdBy: "user-preview", title: "焼肉デートごほうび券", iconEmoji: "🍖", requiredCoins: 5_000, piggyBankType: .shared, isTarget: false, expiresInType: .none, expiresInDays: nil, expiresAt: nil, status: .active, createdAt: now, updatedAt: now),
         ]
         let banks = [
-            PiggyBank(id: "bank-personal", groupId: group.id, ownerType: .personal, ownerUserId: "user-preview", name: "花男の貯金箱", balance: 520, targetRewardId: "reward-coffee", status: .active, createdAt: now, updatedAt: now),
-            PiggyBank(id: "bank-shared", groupId: group.id, ownerType: .shared, ownerUserId: nil, name: "ふたりの貯金箱", balance: 2_800, targetRewardId: "reward-yakiniku", status: .active, createdAt: now, updatedAt: now),
+            PiggyBank(id: "bank-personal", groupId: group.id, ownerType: .personal, ownerUserId: "user-preview", name: "花男の貯金箱", balance: 520, targetRewardId: nil, status: .active, createdAt: now, updatedAt: now),
+            PiggyBank(id: "bank-shared", groupId: group.id, ownerType: .shared, ownerUserId: nil, name: "ふたりの貯金箱", balance: 2_800, targetRewardId: nil, status: .active, createdAt: now, updatedAt: now),
         ]
         let requests = [
             RequestItem(id: "request-massage", groupId: group.id, createdBy: "user-preview", title: "マッサージ10分", iconEmoji: "💆", coinAmount: 100, piggyBankType: .personal, repeatType: .repeatable, status: .active, completionCount: 8, lastCompletedAt: now, createdAt: now, updatedAt: now),
@@ -338,6 +354,59 @@ final class AppState: ObservableObject {
         }
     }
 
+    func createReward(_ draft: RewardDraft) async -> Bool {
+        await perform {
+            let reward = try await repository.createReward(draft)
+            replaceReward(reward)
+        }
+    }
+
+    func presentRewardCreation() {
+        rewardCreationRequested = true
+        selectedTab = 2
+    }
+
+    func presentUsableTickets() {
+        usableTicketsRequested = true
+        selectedTab = 2
+    }
+
+    func updateReward(_ reward: Reward, draft: RewardDraft) async -> Bool {
+        await perform {
+            let updated = try await repository.updateReward(reward, draft: draft)
+            replaceReward(updated)
+        }
+    }
+
+    func hideReward(_ reward: Reward) async -> Bool {
+        await perform {
+            let hidden = try await repository.hideReward(reward)
+            replaceReward(hidden)
+        }
+    }
+
+    func exchangeReward(_ reward: Reward, from bank: PiggyBank) async -> Bool {
+        await perform {
+            let result = try await repository.exchangeReward(
+                groupId: reward.groupId,
+                rewardId: reward.id,
+                piggyBankId: bank.id
+            )
+            applyRewardExchange(result)
+            issuedTicket = result.ticket
+        }
+    }
+
+    func useTicket(_ ticket: Ticket) async -> Bool {
+        await perform {
+            let result = try await repository.useTicket(ticketId: ticket.id)
+            tickets.removeAll { $0.id == result.ticket.id }
+            tickets.insert(result.ticket, at: 0)
+            records.removeAll { $0.id == result.record.id }
+            records.insert(result.record, at: 0)
+        }
+    }
+
     func charin(_ request: RequestItem) async -> Bool {
         await perform {
             let result = try await repository.charinRequest(groupId: request.groupId, requestId: request.id)
@@ -355,6 +424,8 @@ final class AppState: ObservableObject {
         guard phase == .charinCelebration else { return }
         activeCharin = nil
         selectedTab = 0
+        rewardCreationRequested = false
+        usableTicketsRequested = false
         phase = .main
     }
 
@@ -388,8 +459,24 @@ final class AppState: ObservableObject {
         }
     }
 
-    func targetReward(for bank: PiggyBank) -> Reward? {
-        initialTemplate?.rewards.first { $0.id == bank.targetRewardId && $0.status == .active }
+    func nearestReward(for bank: PiggyBank) -> Reward? {
+        guard let rewards = initialTemplate?.rewards else { return nil }
+        return rewards
+            .filter { reward in
+                guard reward.status == .active, reward.piggyBankType == bank.ownerType else { return false }
+                if bank.ownerType == .personal, reward.createdBy != bank.ownerUserId { return false }
+                return !hasExchangedReward(reward)
+            }
+            .min { lhs, rhs in
+                let lhsRemaining = max(lhs.requiredCoins - bank.balance, 0)
+                let rhsRemaining = max(rhs.requiredCoins - bank.balance, 0)
+                if lhsRemaining != rhsRemaining { return lhsRemaining < rhsRemaining }
+                return lhs.requiredCoins < rhs.requiredCoins
+            }
+    }
+
+    func hasExchangedReward(_ reward: Reward) -> Bool {
+        tickets.contains { $0.rewardId == reward.id && $0.status != .canceled }
     }
 
     func startObservingInviteCompletion() {
@@ -433,6 +520,7 @@ final class AppState: ObservableObject {
         initialTemplate = session.initialTemplate
         partnerProfile = session.partnerProfile
         records = session.records
+        tickets = session.tickets
         displayName = session.profile?.displayName ?? ""
         selectedEmoji = session.profile?.iconEmoji
 
@@ -472,6 +560,7 @@ final class AppState: ObservableObject {
         initialTemplate = session.initialTemplate
         partnerProfile = session.partnerProfile
         records = session.records
+        tickets = session.tickets
         self.pendingInvite = nil
         persistPendingInvite()
         phase = .main
@@ -484,6 +573,7 @@ final class AppState: ObservableObject {
             initialTemplate = session.initialTemplate
             partnerProfile = session.partnerProfile
             records = session.records
+            tickets = session.tickets
             phase = .main
         }
     }
@@ -553,6 +643,19 @@ final class AppState: ObservableObject {
         )
     }
 
+    private func replaceReward(_ reward: Reward) {
+        guard let current = initialTemplate else { return }
+        var rewards = current.rewards.filter { $0.id != reward.id }
+        rewards.append(reward)
+        initialTemplate = InitialTemplateResult(
+            group: current.group,
+            piggyBanks: current.piggyBanks,
+            requests: current.requests,
+            rewards: rewards,
+            invite: current.invite
+        )
+    }
+
     private func applyCharin(_ result: CharinResult) {
         guard let current = initialTemplate else { return }
         let banks = current.piggyBanks.map { bank -> PiggyBank in
@@ -578,6 +681,28 @@ final class AppState: ObservableObject {
             rewards: current.rewards,
             invite: current.invite
         )
+        records.removeAll { $0.id == result.record.id }
+        records.insert(result.record, at: 0)
+    }
+
+    private func applyRewardExchange(_ result: RewardExchangeResult) {
+        guard let current = initialTemplate else { return }
+        let banks = current.piggyBanks.map { bank -> PiggyBank in
+            guard bank.id == result.record.piggyBankId else { return bank }
+            var updated = bank
+            updated.balance = result.record.balanceAfter
+            updated.updatedAt = result.record.createdAt
+            return updated
+        }
+        initialTemplate = InitialTemplateResult(
+            group: current.group,
+            piggyBanks: banks,
+            requests: current.requests,
+            rewards: current.rewards,
+            invite: current.invite
+        )
+        tickets.removeAll { $0.id == result.ticket.id }
+        tickets.insert(result.ticket, at: 0)
         records.removeAll { $0.id == result.record.id }
         records.insert(result.record, at: 0)
     }
@@ -630,6 +755,8 @@ final class AppState: ObservableObject {
         initialTemplate = nil
         partnerProfile = nil
         records = []
+        tickets = []
+        issuedTicket = nil
         activeCharin = nil
         pendingCharinUndo = nil
         pendingInvite = nil

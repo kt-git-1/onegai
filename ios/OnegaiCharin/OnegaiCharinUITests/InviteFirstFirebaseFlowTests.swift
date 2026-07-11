@@ -58,6 +58,80 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["ふたりのお願い"].exists)
     }
 
+    func testRewardListFiltersByStatusAndBank() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-previewPhase", "main", "-previewTab", "rewards"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["コンビニスイーツ券"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["焼肉デートごほうび券"].exists)
+
+        app.buttons["reward-status-交換できる"].tap()
+        XCTAssertTrue(app.staticTexts["コンビニスイーツ券"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["スタバごほうび券"].exists)
+
+        app.buttons["reward-status-すべて"].tap()
+        app.buttons["reward-bank-filter-ふたり"].tap()
+        XCTAssertTrue(app.staticTexts["焼肉デートごほうび券"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["コンビニスイーツ券"].exists)
+    }
+
+    func testRewardCreatorCanOpenEditorAndCreateReward() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-previewPhase", "main", "-previewTab", "rewards"]
+        app.launch()
+
+        app.buttons["reward-status-すべて"].tap()
+        XCTAssertTrue(app.staticTexts["スタバごほうび券"].waitForExistence(timeout: 3))
+        app.staticTexts["スタバごほうび券"].tap()
+        XCTAssertTrue(app.buttons["edit-reward-reward-coffee"].waitForExistence(timeout: 2))
+        app.buttons["edit-reward-reward-coffee"].tap()
+        XCTAssertTrue(app.navigationBars["ごほうび券を編集"].waitForExistence(timeout: 2))
+        app.buttons["キャンセル"].tap()
+
+        app.buttons["add-reward-button"].tap()
+        XCTAssertTrue(app.navigationBars["ごほうび券を作る"].waitForExistence(timeout: 2))
+        let title = app.textFields["reward-title-field"]
+        title.tap()
+        title.typeText("映画ごほうび券")
+        app.keyboards.buttons["Return"].tap()
+        app.buttons["save-reward-button"].tap()
+        XCTAssertTrue(app.staticTexts["映画ごほうび券"].waitForExistence(timeout: 3))
+    }
+
+    func testExchangeRewardIssuesTicketAndShowsOwnedList() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-previewPhase", "main", "-previewTab", "rewards"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["reward-status-交換できる"].waitForExistence(timeout: 3))
+        app.buttons["reward-status-交換できる"].tap()
+        XCTAssertTrue(app.buttons["exchange-reward-reward-sweets"].waitForExistence(timeout: 2))
+        app.buttons["exchange-reward-reward-sweets"].tap()
+        XCTAssertTrue(app.staticTexts["コンビニスイーツ券を\n交換しますか？"].waitForExistence(timeout: 2))
+        app.buttons["confirm-exchange-reward-button"].tap()
+        let viewTickets = app.buttons["持っている券を見る"]
+        XCTAssertTrue(viewTickets.waitForExistence(timeout: 3))
+        viewTickets.tap()
+        XCTAssertTrue(app.buttons["ticket-filter-unused"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["ticket-filter-unused"].isSelected)
+        XCTAssertTrue(app.staticTexts["コンビニスイーツ券"].waitForExistence(timeout: 3))
+        app.buttons["reward-section-rewards"].tap()
+        app.buttons["reward-status-あと少し"].tap()
+        XCTAssertTrue(app.staticTexts["スタバごほうび券"].waitForExistence(timeout: 3))
+        app.buttons["reward-section-tickets"].tap()
+        app.buttons["券を表示"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["use-ticket-button"].waitForExistence(timeout: 2))
+        app.buttons["use-ticket-button"].tap()
+        let confirmUse = app.sheets.buttons["使用済みにする"]
+        XCTAssertTrue(confirmUse.waitForExistence(timeout: 2))
+        confirmUse.tap()
+        XCTAssertTrue(app.buttons["ticket-filter-unused"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["use-ticket-button"].exists)
+        app.buttons["ticket-filter-used"].tap()
+        XCTAssertTrue(app.staticTexts["コンビニスイーツ券"].waitForExistence(timeout: 3))
+    }
+
     func testEmailRegistrationReachesInviteScreen() {
         let app = XCUIApplication()
         app.launchArguments = ["-useFirebaseEmulator", "-previewPhase", "authentication"]

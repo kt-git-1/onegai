@@ -10,17 +10,20 @@ struct AppSession: Equatable, Sendable {
     let initialTemplate: InitialTemplateResult?
     let partnerProfile: UserProfile?
     let records: [ActivityRecord]
+    let tickets: [Ticket]
 
     init(
         profile: UserProfile?,
         initialTemplate: InitialTemplateResult?,
         partnerProfile: UserProfile? = nil,
-        records: [ActivityRecord] = []
+        records: [ActivityRecord] = [],
+        tickets: [Ticket] = []
     ) {
         self.profile = profile
         self.initialTemplate = initialTemplate
         self.partnerProfile = partnerProfile
         self.records = records
+        self.tickets = tickets
     }
 }
 
@@ -111,6 +114,48 @@ struct Reward: Identifiable, Codable, Equatable, Sendable {
     var status: Status
     let createdAt: Date
     var updatedAt: Date
+}
+
+struct RewardDraft: Equatable, Sendable {
+    var title: String
+    var iconEmoji: String
+    var requiredCoins: Int
+    var piggyBankType: PiggyBank.OwnerType
+    var expiresInType: Reward.ExpiryType
+    var expiresInDays: Int?
+    var expiresAt: Date?
+}
+
+struct Ticket: Identifiable, Codable, Equatable, Sendable {
+    enum Status: String, Codable, Sendable { case unused, used, expired, canceled }
+
+    let id: String
+    let groupId: String
+    let rewardId: String
+    let issuedBy: String
+    let ownerUserId: String?
+    let piggyBankId: String
+    let ticketType: PiggyBank.OwnerType
+    let title: String
+    let iconEmoji: String
+    let spentCoins: Int
+    var status: Status
+    let issuedAt: Date
+    var usedAt: Date?
+    var usedBy: String?
+    let expiresAt: Date?
+    let createdAt: Date
+    var updatedAt: Date
+}
+
+struct RewardExchangeResult: Equatable, Sendable {
+    let ticket: Ticket
+    let record: ActivityRecord
+}
+
+struct TicketUseResult: Equatable, Sendable {
+    let ticket: Ticket
+    let record: ActivityRecord
 }
 
 struct ActivityRecord: Identifiable, Codable, Equatable, Sendable {

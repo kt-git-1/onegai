@@ -233,6 +233,128 @@ final class LocalAppRepositoryTests: XCTestCase {
         }
     }
 
+    func testRewardCreateUpdateAndHideRefreshAppState() async throws {
+        let repository = LocalAppRepository()
+        let state = AppState(repository: repository)
+        await state.register(email: "reward-owner@example.com", password: "password")
+        state.displayName = "花男"
+        await state.saveProfile()
+        await state.applyInitialTemplate()
+
+        let draft = RewardDraft(
+            title: "  映画ごほうび券  ",
+            iconEmoji: "🎬",
+            requiredCoins: 1_200,
+            piggyBankType: .shared,
+            expiresInType: .days,
+            expiresInDays: 30,
+            expiresAt: nil
+        )
+        let didCreate = await state.createReward(draft)
+        XCTAssertTrue(didCreate)
+        let reward = try XCTUnwrap(state.initialTemplate?.rewards.first { $0.title == "映画ごほうび券" })
+        XCTAssertEqual(reward.createdBy, state.authenticatedUser?.id)
+        XCTAssertEqual(reward.requiredCoins, 1_200)
+        XCTAssertEqual(reward.piggyBankType, .shared)
+        XCTAssertEqual(reward.expiresInDays, 30)
+        XCTAssertFalse(reward.isTarget)
+
+        let expiryDate = Calendar.current.date(byAdding: .day, value: 45, to: Date())!
+        let updated = RewardDraft(
+            title: "映画デート券",
+            iconEmoji: "🍿",
+            requiredCoins: 1_500,
+            piggyBankType: .personal,
+            expiresInType: .date,
+            expiresInDays: nil,
+            expiresAt: expiryDate
+        )
+        let didUpdate = await state.updateReward(reward, draft: updated)
+        XCTAssertTrue(didUpdate)
+        let edited = try XCTUnwrap(state.initialTemplate?.rewards.first { $0.id == reward.id })
+        XCTAssertEqual(edited.title, "映画デート券")
+        XCTAssertEqual(edited.requiredCoins, 1_500)
+        XCTAssertEqual(edited.expiresInType, .date)
+        XCTAssertEqual(try XCTUnwrap(edited.expiresAt).timeIntervalSince1970, expiryDate.timeIntervalSince1970, accuracy: 0.001)
+
+        let didHide = await state.hideReward(edited)
+        XCTAssertTrue(didHide)
+        XCTAssertEqual(state.initialTemplate?.rewards.first { $0.id == reward.id }?.status, .hidden)
+    }
+
+    func testRewardCanOnlyBeChangedByCreator() async throws {
+        let repository = LocalAppRepository()
+        _ = try await repository.register(email: "reward-owner@example.com", password: "password")
+        _ = try await repository.saveProfile(displayName: "花男", iconEmoji: nil)
+        let template = try await repository.createInitialTemplate()
+        let original = try XCTUnwrap(template.rewards.first)
+        let foreignReward = Reward(
+            id: original.id,
+            groupId: original.groupId,
+            createdBy: "partner-preview",
+            title: original.title,
+            iconEmoji: original.iconEmoji,
+            requiredCoins: original.requiredCoins,
+            piggyBankType: original.piggyBankType,
+            isTarget: original.isTarget,
+            expiresInType: original.expiresInType,
+            expiresInDays: original.expiresInDays,
+            expiresAt: original.expiresAt,
+            status: original.status,
+            createdAt: original.createdAt,
+            updatedAt: original.updatedAt
+        )
+
+        do {
+            _ = try await repository.hideReward(foreignReward)
+            XCTFail("Expected rewardNotOwned")
+        } catch {
+            XCTAssertEqual(error as? AppRepositoryError, .rewardNotOwned)
+        }
+    }
+
+    func testRewardExchangeUpdatesBalanceAndIssuesTicket() async throws {
+        let repository = LocalAppRepository()
+        let state = AppState(repository: repository)
+        await state.register(email: "exchange@example.com", password: "password")
+        state.displayName = "花男"
+        await state.saveProfile()
+        await state.applyInitialTemplate()
+
+        let request = try XCTUnwrap(state.initialTemplate?.requests.first { $0.coinAmount == 100 })
+        let didCharin = await state.charin(request)
+        XCTAssertTrue(didCharin)
+        state.finishCharinCelebration()
+        let bank = try XCTUnwrap(state.piggyBank(for: request))
+        let draft = RewardDraft(title: "テスト券", iconEmoji: "🎁", requiredCoins: 100,
+                                piggyBankType: .personal, expiresInType: .days,
+                                expiresInDays: 7, expiresAt: nil)
+        let didCreate = await state.createReward(draft)
+        XCTAssertTrue(didCreate)
+        let reward = try XCTUnwrap(state.initialTemplate?.rewards.first { $0.title == "テスト券" })
+
+        let didExchange = await state.exchangeReward(reward, from: bank)
+        XCTAssertTrue(didExchange)
+        XCTAssertEqual(state.initialTemplate?.piggyBanks.first { $0.id == bank.id }?.balance, 0)
+        XCTAssertEqual(state.tickets.first?.title, "テスト券")
+        XCTAssertEqual(state.tickets.first?.status, .unused)
+        XCTAssertEqual(state.records.first?.type, .rewardExchange)
+        XCTAssertEqual(state.records.first?.coinDelta, -100)
+        XCTAssertNotNil(state.issuedTicket)
+        let updatedBank = try XCTUnwrap(state.initialTemplate?.piggyBanks.first { $0.id == bank.id })
+        XCTAssertEqual(state.nearestReward(for: updatedBank)?.title, "スタバごほうび券")
+        let duplicateExchange = await state.exchangeReward(reward, from: updatedBank)
+        XCTAssertFalse(duplicateExchange)
+
+        let ticket = try XCTUnwrap(state.tickets.first)
+        let didUse = await state.useTicket(ticket)
+        XCTAssertTrue(didUse)
+        XCTAssertEqual(state.tickets.first?.status, .used)
+        XCTAssertEqual(state.tickets.first?.usedBy, state.authenticatedUser?.id)
+        XCTAssertNotNil(state.tickets.first?.usedAt)
+        XCTAssertEqual(state.records.first?.type, .ticketUsed)
+    }
+
     func testCharinAndCancelUpdateBalanceRequestAndRecords() async throws {
         let repository = LocalAppRepository()
         let state = AppState(repository: repository)

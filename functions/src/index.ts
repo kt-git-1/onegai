@@ -410,10 +410,12 @@ export const charinRequest = onCall(async (request) => {
   let result: CharinResult | undefined;
 
   await db.runTransaction(async (transaction) => {
-    const [memberSnapshot, requestSnapshot, bankSnapshots] = await Promise.all([
+    const [memberSnapshot, requestSnapshot, bankSnapshots, rewardSnapshots, ticketSnapshots] = await Promise.all([
       transaction.get(memberRef),
       transaction.get(requestRef),
       transaction.get(db.collection("piggyBanks").where("groupId", "==", groupId)),
+      transaction.get(db.collection("rewards").where("groupId", "==", groupId)),
+      transaction.get(db.collection("tickets").where("groupId", "==", groupId)),
     ]);
     if (!memberSnapshot.exists || memberSnapshot.get("status") !== "active") {
       throw new HttpsError("permission-denied", "このお願いをちゃりんできません。");
@@ -446,11 +448,23 @@ export const charinRequest = onCall(async (request) => {
     const requestStatus = repeatType === "oneTime" ? "hidden" : "active";
     const now = Timestamp.now();
 
-    const targetRewardId = bankSnapshot.get("targetRewardId") as string | undefined;
-    const targetRewardSnapshot = targetRewardId ?
-      await transaction.get(db.collection("rewards").doc(targetRewardId)) : null;
+    const exchangedRewardIds = new Set(ticketSnapshots.docs
+      .filter((snapshot) => snapshot.get("status") !== "canceled")
+      .map((snapshot) => String(snapshot.get("rewardId") ?? "")));
+    const targetRewardSnapshot = rewardSnapshots.docs
+      .filter((snapshot) => {
+        if (snapshot.get("status") !== "active" || snapshot.get("piggyBankType") !== bankType) return false;
+        if (bankType === "personal" && snapshot.get("createdBy") !== bankSnapshot.get("ownerUserId")) return false;
+        return !exchangedRewardIds.has(snapshot.id);
+      })
+      .sort((lhs, rhs) => {
+        const lhsRequired = Number(lhs.get("requiredCoins") ?? 0);
+        const rhsRequired = Number(rhs.get("requiredCoins") ?? 0);
+        const remainingDifference = Math.max(lhsRequired - balanceAfter, 0) - Math.max(rhsRequired - balanceAfter, 0);
+        return remainingDifference !== 0 ? remainingDifference : lhsRequired - rhsRequired;
+      })[0];
     const requiredCoins = Number(targetRewardSnapshot?.get("requiredCoins") ?? 0);
-    const targetReward = targetRewardSnapshot?.exists && requiredCoins > 0 ? {
+    const targetReward = targetRewardSnapshot && requiredCoins > 0 ? {
       id: targetRewardSnapshot.id,
       title: String(targetRewardSnapshot.get("title") ?? "ごほうび券"),
       iconEmoji: String(targetRewardSnapshot.get("iconEmoji") ?? "🎁"),
@@ -509,6 +523,169 @@ export const charinRequest = onCall(async (request) => {
 
   if (!result) throw new HttpsError("internal", "ちゃりん結果を取得できませんでした。");
   return result;
+});
+
+export const exchangeReward = onCall(async (request) => {
+  const userId = requireUserId(request.auth);
+  const groupId = typeof request.data?.groupId === "string" ? request.data.groupId : "";
+  const rewardId = typeof request.data?.rewardId === "string" ? request.data.rewardId : "";
+  const piggyBankId = typeof request.data?.piggyBankId === "string" ? request.data.piggyBankId : "";
+  if (!groupId || !rewardId || !piggyBankId) {
+    throw new HttpsError("invalid-argument", "交換するごほうび券が指定されていません。");
+  }
+
+  const memberRef = db.collection("groupMembers").doc(`${groupId}_${userId}`);
+  const rewardRef = db.collection("rewards").doc(rewardId);
+  const bankRef = db.collection("piggyBanks").doc(piggyBankId);
+  const ticketRef = db.collection("tickets").doc();
+  const recordRef = db.collection("records").doc();
+  let response: Record<string, unknown> | undefined;
+
+  await db.runTransaction(async (transaction) => {
+    const [memberSnapshot, rewardSnapshot, bankSnapshot, existingTicketSnapshots] = await Promise.all([
+      transaction.get(memberRef),
+      transaction.get(rewardRef),
+      transaction.get(bankRef),
+      transaction.get(db.collection("tickets").where("rewardId", "==", rewardId)),
+    ]);
+    if (!memberSnapshot.exists || memberSnapshot.get("status") !== "active") {
+      throw new HttpsError("permission-denied", "このごほうび券は交換できません。");
+    }
+    if (!rewardSnapshot.exists || rewardSnapshot.get("groupId") !== groupId || rewardSnapshot.get("status") !== "active") {
+      throw new HttpsError("not-found", "ごほうび券が見つかりません。");
+    }
+    if (!bankSnapshot.exists || bankSnapshot.get("groupId") !== groupId || bankSnapshot.get("status") !== "active") {
+      throw new HttpsError("failed-precondition", "貯金箱が見つかりません。");
+    }
+    if (existingTicketSnapshots.docs.some((snapshot) =>
+      snapshot.get("groupId") === groupId && snapshot.get("status") !== "canceled")) {
+      throw new HttpsError("already-exists", "このごほうび券はすでに交換済みです。");
+    }
+    const bankType = rewardSnapshot.get("piggyBankType") as BankType | undefined;
+    if (bankSnapshot.get("ownerType") !== bankType ||
+        (bankType === "personal" && bankSnapshot.get("ownerUserId") !== rewardSnapshot.get("createdBy"))) {
+      throw new HttpsError("failed-precondition", "この貯金箱では交換できません。");
+    }
+
+    const requiredCoins = Number(rewardSnapshot.get("requiredCoins") ?? 0);
+    const balanceBefore = Number(bankSnapshot.get("balance") ?? 0);
+    if (!Number.isSafeInteger(requiredCoins) || requiredCoins <= 0) {
+      throw new HttpsError("failed-precondition", "必要コイン数が正しくありません。");
+    }
+    if (!Number.isSafeInteger(balanceBefore) || balanceBefore < requiredCoins) {
+      throw new HttpsError("failed-precondition", "交換に必要なコインが足りません。");
+    }
+
+    const now = Timestamp.now();
+    const balanceAfter = balanceBefore - requiredCoins;
+    const expiryType = String(rewardSnapshot.get("expiresInType") ?? "none");
+    let expiresAt: Timestamp | null = null;
+    if (expiryType === "days") {
+      const days = Number(rewardSnapshot.get("expiresInDays") ?? 0);
+      if (Number.isSafeInteger(days) && days > 0) {
+        expiresAt = Timestamp.fromMillis(now.toMillis() + days * 24 * 60 * 60 * 1000);
+      }
+    } else if (expiryType === "date") {
+      expiresAt = rewardSnapshot.get("expiresAt") as Timestamp | null;
+    }
+
+    const title = String(rewardSnapshot.get("title") ?? "ごほうび券");
+    const iconEmoji = String(rewardSnapshot.get("iconEmoji") ?? "🎁");
+    const piggyBankName = String(bankSnapshot.get("name") ?? "貯金箱");
+    const ticket = {
+      id: ticketRef.id, groupId, rewardId, issuedBy: userId,
+      ownerUserId: bankType === "personal" ? bankSnapshot.get("ownerUserId") : null,
+      piggyBankId, ticketType: bankType, title, iconEmoji, spentCoins: requiredCoins,
+      status: "unused", issuedAt: now, usedAt: null, usedBy: null, expiresAt,
+      createdAt: now, updatedAt: now,
+    };
+    const record = {
+      id: recordRef.id, groupId, userId, type: "rewardExchange", targetType: "reward",
+      targetId: rewardId, title, iconEmoji, coinDelta: -requiredCoins,
+      piggyBankId, piggyBankName, balanceBefore, balanceAfter,
+      status: "active", createdAt: now, canceledAt: null,
+    };
+    transaction.update(bankRef, {balance: balanceAfter, updatedAt: now});
+    transaction.create(ticketRef, ticket);
+    transaction.create(recordRef, record);
+
+    response = {
+      ticket: {...ticket, issuedAt: now.toDate().toISOString(), expiresAt: expiresAt?.toDate().toISOString() ?? null},
+      record: {...record, createdAt: now.toDate().toISOString()},
+    };
+  });
+
+  if (!response) throw new HttpsError("internal", "交換結果を取得できませんでした。");
+  return response;
+});
+
+export const useTicket = onCall(async (request) => {
+  const userId = requireUserId(request.auth);
+  const ticketId = typeof request.data?.ticketId === "string" ? request.data.ticketId : "";
+  if (!ticketId) throw new HttpsError("invalid-argument", "使用する券が指定されていません。");
+
+  const ticketRef = db.collection("tickets").doc(ticketId);
+  const recordRef = db.collection("records").doc();
+  let response: Record<string, unknown> | undefined;
+
+  await db.runTransaction(async (transaction) => {
+    const ticketSnapshot = await transaction.get(ticketRef);
+    if (!ticketSnapshot.exists) throw new HttpsError("not-found", "ごほうび券が見つかりません。");
+    if (ticketSnapshot.get("status") !== "unused") {
+      throw new HttpsError("failed-precondition", "このごほうび券は使用できません。");
+    }
+    const groupId = String(ticketSnapshot.get("groupId") ?? "");
+    const piggyBankId = String(ticketSnapshot.get("piggyBankId") ?? "");
+    const memberRef = db.collection("groupMembers").doc(`${groupId}_${userId}`);
+    const bankRef = db.collection("piggyBanks").doc(piggyBankId);
+    const [memberSnapshot, bankSnapshot] = await Promise.all([
+      transaction.get(memberRef),
+      transaction.get(bankRef),
+    ]);
+    if (!memberSnapshot.exists || memberSnapshot.get("status") !== "active") {
+      throw new HttpsError("permission-denied", "このごほうび券は使用できません。");
+    }
+    if (!bankSnapshot.exists || bankSnapshot.get("groupId") !== groupId) {
+      throw new HttpsError("failed-precondition", "貯金箱が見つかりません。");
+    }
+    const ticketType = String(ticketSnapshot.get("ticketType") ?? "");
+    if (ticketType === "personal" && ticketSnapshot.get("ownerUserId") !== userId) {
+      throw new HttpsError("permission-denied", "このごほうび券は使用できません。");
+    }
+
+    const now = Timestamp.now();
+    const title = String(ticketSnapshot.get("title") ?? "ごほうび券");
+    const iconEmoji = String(ticketSnapshot.get("iconEmoji") ?? "🎁");
+    const balance = Number(bankSnapshot.get("balance") ?? 0);
+    const record = {
+      id: recordRef.id, groupId, userId, type: "ticketUsed", targetType: "ticket",
+      targetId: ticketId, title, iconEmoji, coinDelta: 0,
+      piggyBankId, piggyBankName: String(bankSnapshot.get("name") ?? "貯金箱"),
+      balanceBefore: balance, balanceAfter: balance, status: "active",
+      createdAt: now, canceledAt: null,
+    };
+    transaction.update(ticketRef, {status: "used", usedAt: now, usedBy: userId, updatedAt: now});
+    transaction.create(recordRef, record);
+
+    const issuedAt = ticketSnapshot.get("issuedAt") as Timestamp;
+    const createdAt = ticketSnapshot.get("createdAt") as Timestamp;
+    const expiresAt = ticketSnapshot.get("expiresAt") as Timestamp | null;
+    response = {
+      ticket: {
+        id: ticketId, groupId, rewardId: ticketSnapshot.get("rewardId"),
+        issuedBy: ticketSnapshot.get("issuedBy"), ownerUserId: ticketSnapshot.get("ownerUserId") ?? null,
+        piggyBankId, ticketType, title, iconEmoji, spentCoins: ticketSnapshot.get("spentCoins"),
+        status: "used", issuedAt: issuedAt.toDate().toISOString(),
+        usedAt: now.toDate().toISOString(), usedBy: userId,
+        expiresAt: expiresAt?.toDate().toISOString() ?? null,
+        createdAt: createdAt.toDate().toISOString(), updatedAt: now.toDate().toISOString(),
+      },
+      record: {...record, createdAt: now.toDate().toISOString()},
+    };
+  });
+
+  if (!response) throw new HttpsError("internal", "使用結果を取得できませんでした。");
+  return response;
 });
 
 export const cancelCharin = onCall(async (request) => {
