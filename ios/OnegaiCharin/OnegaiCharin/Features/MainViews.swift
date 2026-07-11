@@ -283,11 +283,12 @@ private struct SettingsView: View {
                         value: appState.inviteCode,
                         systemImage: "number"
                     )
-                    Button {
-                        if let inviteURL = appState.inviteURL {
-                            UIPasteboard.general.string = inviteURL.absoluteString
-                            withAnimation { showsCopied = true }
-                            Task {
+	                    Button {
+	                        if let inviteURL = appState.inviteURL {
+	                            UIPasteboard.general.string = inviteURL.absoluteString
+	                            appState.trackInviteSent(channel: "settings_copy")
+	                            withAnimation { showsCopied = true }
+	                            Task {
                                 try? await Task.sleep(for: .seconds(1.6))
                                 withAnimation { showsCopied = false }
                             }
@@ -297,9 +298,13 @@ private struct SettingsView: View {
                     }
                     .disabled(appState.inviteURL == nil)
 
-                    Button {
-                        Task { await appState.reissueInvite() }
-                    } label: {
+	                    Button {
+	                        Task {
+	                            if await appState.reissueInvite() {
+	                                appState.trackInviteSent(channel: "settings_reissue")
+	                            }
+	                        }
+	                    } label: {
                         SettingsActionRow(title: appState.isProcessing ? "再発行中…" : "招待リンクを再発行", systemImage: "arrow.clockwise")
                     }
                     .disabled(appState.isProcessing)

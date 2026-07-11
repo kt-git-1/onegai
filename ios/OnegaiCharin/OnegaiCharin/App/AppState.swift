@@ -44,13 +44,16 @@ final class AppState: ObservableObject {
     @Published private(set) var notificationsEnabled = false
 
     private let repository: any AppRepository
+    private let analytics: AnalyticsService
     private let persistsPendingInvite: Bool
     private let pendingInviteStorageKey = "pendingInvite"
+    private let analyticsRetentionStoragePrefix = "analyticsRetention"
     private var partnerObservation: AppObservation?
     private var reactionObservation: AppObservation?
     private var recordObservation: AppObservation?
 
-    init(repository: (any AppRepository)? = nil) {
+    init(repository: (any AppRepository)? = nil, analytics: AnalyticsService = .shared) {
+        self.analytics = analytics
         if let repository {
             self.repository = repository
             persistsPendingInvite = false
@@ -240,8 +243,13 @@ final class AppState: ObservableObject {
 
     func register(email: String, password: String) async {
         await perform {
+            let hadPendingInvite = pendingInvite != nil
             let user = try await repository.register(email: email, password: password)
             try await restoreSession(for: user)
+            analytics.log(.signUpCompleted, parameters: [
+                "method": "email",
+                "has_pending_invite": hadPendingInvite
+            ])
         }
     }
 
@@ -364,7 +372,25 @@ final class AppState: ObservableObject {
         await perform {
             initialTemplate = try await repository.createInitialTemplate()
             phase = .invite
+            analytics.log(.templateApplied, parameters: [
+                "request_count": initialTemplate?.requests.count,
+                "reward_count": initialTemplate?.rewards.count
+            ])
         }
+    }
+
+    func trackInviteSent(channel: String) {
+        analytics.log(.inviteSent, parameters: [
+            "channel": channel,
+            "group_id": initialTemplate?.group.id
+        ])
+    }
+
+    func trackInviteScreenViewed(context: String) {
+        analytics.log(.inviteScreenViewed, parameters: [
+            "context": context,
+            "group_id": initialTemplate?.group.id
+        ])
     }
 
     func completeInviteForPreview() async {
@@ -373,7 +399,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    func reissueInvite() async {
+    @discardableResult
+    func reissueInvite() async -> Bool {
         await perform {
             let invite = try await repository.reissueInvite()
             guard let current = initialTemplate else { return }
@@ -448,6 +475,13 @@ final class AppState: ObservableObject {
             )
             applyRewardExchange(result)
             issuedTicket = result.ticket
+            analytics.log(.rewardExchanged, parameters: [
+                "reward_id": reward.id,
+                "piggy_bank_type": bank.ownerType.rawValue,
+                "required_coins": reward.requiredCoins,
+                "balance_after": result.record.balanceAfter,
+                "ticket_type": result.ticket.ticketType.rawValue
+            ])
         }
     }
 
@@ -458,6 +492,12 @@ final class AppState: ObservableObject {
             tickets.insert(result.ticket, at: 0)
             records.removeAll { $0.id == result.record.id }
             records.insert(result.record, at: 0)
+            analytics.log(.ticketUsed, parameters: [
+                "ticket_id": ticket.id,
+                "reward_id": ticket.rewardId,
+                "ticket_type": ticket.ticketType.rawValue,
+                "spent_coins": ticket.spentCoins
+            ])
         }
     }
 
@@ -467,6 +507,10 @@ final class AppState: ObservableObject {
             reactions.removeAll { $0.id == reaction.id }
             reactions.append(reaction)
             showToast(message: "\(stampType.label)を送りました", systemImage: "heart.fill")
+            analytics.log(.reactionAdded, parameters: [
+                "record_id": record.id,
+                "stamp_type": stampType.rawValue
+            ])
         }
     }
 
@@ -480,6 +524,13 @@ final class AppState: ObservableObject {
                 expiresAt: result.record.createdAt.addingTimeInterval(Self.charinUndoDuration)
             )
             phase = .charinCelebration
+            analytics.log(.charinCompleted, parameters: [
+                "request_id": request.id,
+                "piggy_bank_type": request.piggyBankType.rawValue,
+                "coin_amount": request.coinAmount,
+                "balance_after": result.record.balanceAfter,
+                "request_status": result.requestStatus.rawValue
+            ])
         }
     }
 
@@ -506,6 +557,11 @@ final class AppState: ObservableObject {
                 selectedTab = 0
                 phase = .main
             }
+            analytics.log(.charinCanceled, parameters: [
+                "record_id": result.recordId,
+                "request_id": result.requestId,
+                "balance_after": result.balanceAfter
+            ])
         }
     }
 
@@ -631,6 +687,9 @@ final class AppState: ObservableObject {
         reactions = session.reactions
         displayName = session.profile?.displayName ?? ""
         selectedEmoji = session.profile?.iconEmoji
+        if let profile = session.profile {
+            trackRetentionIfNeeded(profile: profile)
+        }
 
         if pendingInvite != nil {
             guard session.profile != nil else {
@@ -678,9 +737,16 @@ final class AppState: ObservableObject {
         reactions = session.reactions
         self.pendingInvite = nil
         persistPendingInvite()
+        if let profile = session.profile {
+            trackRetentionIfNeeded(profile: profile)
+        }
         phase = .main
         startObservingRecords()
         startObservingReactions()
+        analytics.log(.inviteJoined, parameters: [
+            "invite_id": pendingInvite.id,
+            "group_id": session.initialTemplate?.group.id
+        ])
     }
 
     private func refreshAfterPartnerJoined() async {
@@ -692,6 +758,9 @@ final class AppState: ObservableObject {
             records = session.records
             tickets = session.tickets
             reactions = session.reactions
+            if let profile = session.profile {
+                trackRetentionIfNeeded(profile: profile)
+            }
             phase = .main
             startObservingRecords()
             startObservingReactions()
@@ -885,6 +954,25 @@ final class AppState: ObservableObject {
             return profile?.displayName ?? "あなた"
         }
         return partnerProfile?.displayName ?? "相手"
+    }
+
+    private func trackRetentionIfNeeded(profile: UserProfile, now: Date = Date()) {
+        let elapsed = now.timeIntervalSince(profile.createdAt)
+        trackRetentionEventIfNeeded(.day1Retention, userId: profile.id, elapsed: elapsed, threshold: 60 * 60 * 24)
+        trackRetentionEventIfNeeded(.day7Retention, userId: profile.id, elapsed: elapsed, threshold: 60 * 60 * 24 * 7)
+    }
+
+    private func trackRetentionEventIfNeeded(
+        _ event: AnalyticsEvent,
+        userId: String,
+        elapsed: TimeInterval,
+        threshold: TimeInterval
+    ) {
+        guard elapsed >= threshold else { return }
+        let key = "\(analyticsRetentionStoragePrefix).\(event.rawValue).\(userId)"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        analytics.log(event)
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     func advanceOnboarding() {

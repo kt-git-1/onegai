@@ -485,11 +485,12 @@ struct InviteView: View {
                     Label("LINEで招待する", systemImage: "paperplane.fill")
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                Button {
-                    if let inviteURL = appState.inviteURL {
-                        UIPasteboard.general.string = inviteURL.absoluteString
-                        showsCopyToast = true
-                        Task {
+	                Button {
+	                    if let inviteURL = appState.inviteURL {
+	                        UIPasteboard.general.string = inviteURL.absoluteString
+	                        appState.trackInviteSent(channel: "copy")
+	                        showsCopyToast = true
+	                        Task {
                             try? await Task.sleep(for: .milliseconds(900))
                             appState.phase = .inviteWaiting
                         }
@@ -505,14 +506,20 @@ struct InviteView: View {
         .overlay(alignment: .bottom) {
             if showsCopyToast { CopyToast().transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
-        .sheet(item: $shareItem) { item in
-            ActivityShareView(url: item.url) { completed in
-                shareItem = nil
-                if completed { appState.phase = .inviteWaiting }
-            }
-        }
-    }
-}
+	        .sheet(item: $shareItem) { item in
+	            ActivityShareView(url: item.url) { completed in
+	                shareItem = nil
+	                if completed {
+	                    appState.trackInviteSent(channel: "share_sheet")
+	                    appState.phase = .inviteWaiting
+	                }
+	            }
+	        }
+	        .onAppear {
+	            appState.trackInviteScreenViewed(context: "initial_invite")
+	        }
+	    }
+	}
 
 struct InviteWaitingView: View {
     @EnvironmentObject private var appState: AppState
@@ -571,10 +578,11 @@ struct InviteWaitingView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
 
-                Button {
-                    if let inviteURL = appState.inviteURL {
-                        UIPasteboard.general.string = inviteURL.absoluteString
-                        withAnimation { showsCopyToast = true }
+	                Button {
+	                    if let inviteURL = appState.inviteURL {
+	                        UIPasteboard.general.string = inviteURL.absoluteString
+	                        appState.trackInviteSent(channel: "copy")
+	                        withAnimation { showsCopyToast = true }
                         Task {
                             try? await Task.sleep(for: .seconds(1.5))
                             withAnimation { showsCopyToast = false }
@@ -616,10 +624,18 @@ struct InviteWaitingView: View {
         .overlay(alignment: .bottom) {
             if showsCopyToast { CopyToast().transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
-        .sheet(item: $shareItem) { item in
-            ActivityShareView(url: item.url) { _ in shareItem = nil }
-        }
-        .onAppear { appState.startObservingInviteCompletion() }
+	        .sheet(item: $shareItem) { item in
+	            ActivityShareView(url: item.url) { completed in
+	                shareItem = nil
+	                if completed {
+	                    appState.trackInviteSent(channel: "share_sheet")
+	                }
+	            }
+	        }
+	        .onAppear {
+	            appState.trackInviteScreenViewed(context: "invite_waiting")
+	            appState.startObservingInviteCompletion()
+	        }
         .onDisappear { appState.stopObservingInviteCompletion() }
     }
 }

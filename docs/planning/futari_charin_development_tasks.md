@@ -200,18 +200,18 @@ Firebase接続前に、まず画面を作る。
 
 ## Phase 9：Analytics
 
-- [ ] sign_up_completed
-- [ ] template_applied
-- [ ] invite_screen_viewed
-- [ ] invite_sent
-- [ ] invite_joined
-- [ ] charin_completed
-- [ ] charin_canceled
-- [ ] reward_exchanged
-- [ ] ticket_used
-- [ ] reaction_added
-- [ ] day_1_retention
-- [ ] day_7_retention
+- [x] sign_up_completed
+- [x] template_applied
+- [x] invite_screen_viewed
+- [x] invite_sent
+- [x] invite_joined
+- [x] charin_completed
+- [x] charin_canceled
+- [x] reward_exchanged
+- [x] ticket_used
+- [x] reaction_added
+- [x] day_1_retention
+- [x] day_7_retention
 
 ---
 

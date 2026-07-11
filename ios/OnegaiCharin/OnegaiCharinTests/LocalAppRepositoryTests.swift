@@ -106,6 +106,96 @@ final class LocalAppRepositoryTests: XCTestCase {
         XCTAssertEqual(state.toast?.message, "カップル名を保存しました")
     }
 
+    func testAnalyticsEventsAreLoggedForCoreActions() async throws {
+        let repository = LocalAppRepository()
+        var loggedEvents: [(name: String, parameters: [String: Any])] = []
+        let analytics = AnalyticsService(isEnabled: true) { name, parameters in
+            loggedEvents.append((name, parameters))
+        }
+        let state = AppState(repository: repository, analytics: analytics)
+
+        await state.register(email: "analytics@example.com", password: "password")
+        state.displayName = "花男"
+        await state.saveProfile()
+        await state.applyInitialTemplate()
+	        state.trackInviteSent(channel: "copy")
+
+	        let request = try XCTUnwrap(state.initialTemplate?.requests.first { $0.id == "request-massage" })
+	        let charinSucceeded = await state.charin(request)
+	        XCTAssertTrue(charinSucceeded)
+	        let cancelSucceeded = await state.cancelLatestCharin()
+	        XCTAssertTrue(cancelSucceeded)
+	        let secondCharinSucceeded = await state.charin(request)
+	        XCTAssertTrue(secondCharinSucceeded)
+
+	        let bank = try XCTUnwrap(state.initialTemplate?.piggyBanks.first { $0.id == "bank-personal" })
+	        let rewardDraft = RewardDraft(
+	            title: "テストごほうび券",
+	            iconEmoji: "🎁",
+	            requiredCoins: 100,
+	            piggyBankType: .personal,
+	            expiresInType: .none,
+	            expiresInDays: nil,
+	            expiresAt: nil
+	        )
+	        let rewardCreateSucceeded = await state.createReward(rewardDraft)
+	        XCTAssertTrue(rewardCreateSucceeded)
+	        let reward = try XCTUnwrap(state.initialTemplate?.rewards.first { $0.title == "テストごほうび券" })
+	        let exchangeSucceeded = await state.exchangeReward(reward, from: bank)
+	        XCTAssertTrue(exchangeSucceeded)
+	        let ticket = try XCTUnwrap(state.issuedTicket)
+	        let useTicketSucceeded = await state.useTicket(ticket)
+	        XCTAssertTrue(useTicketSucceeded)
+
+        let partnerRecord = ActivityRecord(
+            id: "partner-record",
+            groupId: reward.groupId,
+            userId: "partner-preview",
+            type: .charin,
+            targetType: "request",
+            targetId: "request-massage",
+            title: "マッサージ10分",
+            iconEmoji: "💆",
+            coinDelta: 100,
+            piggyBankId: bank.id,
+            piggyBankName: bank.name,
+            balanceBefore: 0,
+            balanceAfter: 100,
+            status: .active,
+	            createdAt: Date(),
+	            canceledAt: nil
+	        )
+	        let reactionSucceeded = await state.setReaction(.arigatou, for: partnerRecord)
+	        XCTAssertTrue(reactionSucceeded)
+
+        let eventNames = loggedEvents.map(\.name)
+        XCTAssertEqual(eventNames, [
+            "sign_up_completed",
+            "template_applied",
+            "invite_sent",
+	            "charin_completed",
+	            "charin_canceled",
+	            "charin_completed",
+	            "reward_exchanged",
+            "ticket_used",
+            "reaction_added",
+        ])
+        XCTAssertEqual(loggedEvents.first { $0.name == "invite_sent" }?.parameters["channel"] as? String, "copy")
+        XCTAssertEqual(loggedEvents.first { $0.name == "charin_completed" }?.parameters["coin_amount"] as? Int, 100)
+        XCTAssertEqual(loggedEvents.first { $0.name == "reaction_added" }?.parameters["stamp_type"] as? String, "arigatou")
+    }
+
+    func testAnalyticsCanBeDisabledForPreviewAndTests() {
+        var loggedEvents: [String] = []
+        let analytics = AnalyticsService(isEnabled: false) { name, _ in
+            loggedEvents.append(name)
+        }
+
+        analytics.log(.charinCompleted, parameters: ["coin_amount": 100])
+
+        XCTAssertTrue(loggedEvents.isEmpty)
+    }
+
     func testEmailLoginAndPasswordReset() async throws {
         let repository = LocalAppRepository()
         let state = AppState(repository: repository)

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02F9A0E11D7232E68DE4A421 /* AnalyticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB8123D96475EC746D849A4 /* AnalyticsService.swift */; };
 		036AB6C8C712D5536ABFE671 /* AppRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB2DC873FC31B952E51338E /* AppRepository.swift */; };
 		0E8A816078F383853680A858 /* AppleSignInCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24F91E0675B1C7C4E214CEF4 /* AppleSignInCoordinator.swift */; };
 		12951025DB6B955AE28626D6 /* OnboardingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28821F0CDF2B827DEC6ABE83 /* OnboardingViews.swift */; };
@@ -60,6 +61,7 @@
 		2BEAD13FF57B6D9E310436CB /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		3B15C24029AACA22C8AD5A20 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		3B5D361AE70323AEC28AA61F /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		4AB8123D96475EC746D849A4 /* AnalyticsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsService.swift; sourceTree = "<group>"; };
 		5476DF520E29093226D5E450 /* OnegaiCharin.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OnegaiCharin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		59363581373F90D8C2E68C11 /* FirebaseEmulatorConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseEmulatorConfiguration.swift; sourceTree = "<group>"; };
 		5EB2DC873FC31B952E51338E /* AppRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRepository.swift; sourceTree = "<group>"; };
@@ -139,6 +141,7 @@
 		7A62FD6A31B0C72F81CCCE6E /* App */ = {
 			isa = PBXGroup;
 			children = (
+				4AB8123D96475EC746D849A4 /* AnalyticsService.swift */,
 				3B15C24029AACA22C8AD5A20 /* AppState.swift */,
 				59363581373F90D8C2E68C11 /* FirebaseEmulatorConfiguration.swift */,
 				AAED8D5A2424B3CAC85366B0 /* OnegaiCharinApp.swift */,
@@ -348,6 +351,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				02F9A0E11D7232E68DE4A421 /* AnalyticsService.swift in Sources */,
 				036AB6C8C712D5536ABFE671 /* AppRepository.swift in Sources */,
 				4F884B12FF6803BCF34B915B /* AppState.swift in Sources */,
 				0E8A816078F383853680A858 /* AppleSignInCoordinator.swift in Sources */,
