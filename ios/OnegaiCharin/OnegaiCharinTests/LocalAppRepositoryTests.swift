@@ -90,6 +90,22 @@ final class LocalAppRepositoryTests: XCTestCase {
         )
     }
 
+    func testCoupleNameCanBeUpdatedFromSettings() async throws {
+        let repository = LocalAppRepository()
+        let state = AppState(repository: repository)
+
+        await state.register(email: "test@example.com", password: "password")
+        state.displayName = "花男"
+        await state.saveProfile()
+        await state.applyInitialTemplate()
+
+        let saved = await state.updateCoupleName("花男と花子")
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(state.initialTemplate?.group.name, "花男と花子")
+        XCTAssertEqual(state.toast?.message, "カップル名を保存しました")
+    }
+
     func testEmailLoginAndPasswordReset() async throws {
         let repository = LocalAppRepository()
         let state = AppState(repository: repository)
@@ -408,6 +424,27 @@ final class LocalAppRepositoryTests: XCTestCase {
         XCTAssertEqual(state.initialTemplate?.requests.first { $0.id == request.id }?.completionCount, 0)
         XCTAssertTrue(state.records.isEmpty)
         XCTAssertNil(state.pendingCharinUndo)
+    }
+
+    func testRecordObservationTracksCharinAndCancel() async throws {
+        let repository = LocalAppRepository()
+        _ = try await repository.register(email: "records@example.com", password: "password")
+        _ = try await repository.saveProfile(displayName: "花男", iconEmoji: nil)
+        let template = try await repository.createInitialTemplate()
+        let request = try XCTUnwrap(template.requests.first)
+        var snapshots: [[ActivityRecord]] = []
+
+        let observation = repository.observeRecords(groupId: template.group.id) { result in
+            if case .success(let records) = result {
+                snapshots.append(records)
+            }
+        }
+        defer { observation.cancel() }
+
+        let charin = try await repository.charinRequest(groupId: template.group.id, requestId: request.id)
+        _ = try await repository.cancelCharin(recordId: charin.record.id)
+
+        XCTAssertEqual(snapshots.map(\.count), [0, 1, 0])
     }
 
     func testOneTimeRequestIsHiddenAndRestoredByCancel() async throws {

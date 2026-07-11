@@ -34,6 +34,7 @@ struct MainTabView: View {
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: appState.toast)
         .task {
+            appState.startObservingRecords()
             appState.startObservingReactions()
         }
     }
@@ -259,12 +260,29 @@ private struct SettingsView: View {
                 }
 
                 Section("ふたり") {
+                    NavigationLink {
+                        CoupleNameSettingsView()
+                    } label: {
+                        SettingsInfoRow(
+                            title: "カップル名",
+                            value: appState.initialTemplate?.group.name ?? "未設定",
+                            systemImage: "heart.fill"
+                        )
+                    }
+                    NavigationLink {
+                        PartnerInfoSettingsView()
+                    } label: {
+                        SettingsInfoRow(
+                            title: "相手",
+                            value: appState.partnerProfile?.displayName ?? "未連携",
+                            systemImage: "person.2.fill"
+                        )
+                    }
                     SettingsInfoRow(
-                        title: "相手",
-                        value: appState.partnerProfile?.displayName ?? "未連携",
-                        systemImage: "person.2.fill"
+                        title: "招待コード",
+                        value: appState.inviteCode,
+                        systemImage: "number"
                     )
-                    SettingsInfoRow(title: "招待コード", value: appState.inviteCode, systemImage: "number")
                     Button {
                         if let inviteURL = appState.inviteURL {
                             UIPasteboard.general.string = inviteURL.absoluteString
@@ -287,17 +305,20 @@ private struct SettingsView: View {
                     .disabled(appState.isProcessing)
                 }
 
-                Section("サポート") {
-                    Button {
-                        Task { await appState.requestPushNotifications() }
+                Section("アプリ設定") {
+                    NavigationLink {
+                        NotificationSettingsView()
                     } label: {
-                        SettingsActionRow(
-                            title: appState.notificationsEnabled ? "Push通知はオンです" : "Push通知を許可",
-                            systemImage: appState.notificationsEnabled ? "bell.badge.fill" : "bell.fill"
-                        )
+                        SettingsActionRow(title: "通知設定", systemImage: "bell.fill")
                     }
-                    .disabled(appState.isProcessing || appState.notificationsEnabled)
+                    NavigationLink {
+                        AppPreferenceSettingsView()
+                    } label: {
+                        SettingsActionRow(title: "音とテーマ", systemImage: "slider.horizontal.3")
+                    }
+                }
 
+                Section("サポート") {
                     Button {
                         if let url = URL(string: "https://onegai-charin-dev.web.app/terms") {
                             openURL(url)
@@ -311,6 +332,13 @@ private struct SettingsView: View {
                         }
                     } label: {
                         SettingsActionRow(title: "プライバシーポリシー", systemImage: "hand.raised")
+                    }
+                    Button {
+                        if let url = URL(string: "mailto:support@onegai-charin-dev.web.app?subject=%E3%81%8A%E3%81%AD%E3%81%8C%E3%81%84%E3%83%81%E3%83%A3%E3%83%AA%E3%83%B3%E3%81%AE%E5%95%8F%E3%81%84%E5%90%88%E3%82%8F%E3%81%9B") {
+                            openURL(url)
+                        }
+                    } label: {
+                        SettingsActionRow(title: "問い合わせ", systemImage: "envelope")
                     }
                 }
 
@@ -443,6 +471,160 @@ private struct ProfileSettingsView: View {
             displayName = appState.profile?.displayName ?? appState.displayName
             selectedEmoji = appState.profile?.iconEmoji ?? appState.selectedEmoji
         }
+    }
+}
+
+private struct CoupleNameSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var groupName = ""
+
+    private var canSave: Bool {
+        !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !appState.isProcessing
+    }
+
+    var body: some View {
+        List {
+            Section {
+                TextField("例：花男と花子", text: $groupName)
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("couple-name-field")
+            } header: {
+                Text("カップル名")
+            } footer: {
+                Text("ホームや設定で表示される、ふたりの名前です。")
+            }
+
+            if let error = appState.errorMessage {
+                Section {
+                    Text(error)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.appError)
+                }
+            }
+        }
+        .modernFormBackground()
+        .navigationTitle("カップル名")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(appState.isProcessing ? "保存中…" : "保存") {
+                    Task {
+                        let saved = await appState.updateCoupleName(groupName)
+                        if saved { dismiss() }
+                    }
+                }
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.appHeart)
+                .disabled(!canSave)
+            }
+        }
+        .onAppear {
+            groupName = appState.initialTemplate?.group.name ?? ""
+        }
+    }
+}
+
+private struct PartnerInfoSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        List {
+            Section {
+                HStack(spacing: 14) {
+                    AvatarView(emoji: appState.partnerProfile?.iconEmoji, size: 56)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(appState.partnerProfile?.displayName ?? "未連携")
+                            .font(.system(size: 18, weight: .bold))
+                        Text(appState.partnerProfile == nil ? "相手が参加すると表示されます" : "連携済み")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color.appSecondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("ふたり") {
+                SettingsInfoRow(
+                    title: "カップル名",
+                    value: appState.initialTemplate?.group.name ?? "未設定",
+                    systemImage: "heart.fill"
+                )
+                SettingsInfoRow(
+                    title: "メンバー",
+                    value: "\(appState.initialTemplate?.group.memberIds.count ?? 1)人",
+                    systemImage: "person.2"
+                )
+            }
+
+            Section {
+                Label("相手解除は保留中です", systemImage: "lock.fill")
+                    .foregroundStyle(Color.appSecondary)
+            } footer: {
+                Text("誤操作の影響が大きいため、解除導線は仕様確定後に実装します。")
+            }
+        }
+        .modernFormBackground()
+        .navigationTitle("相手情報")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct NotificationSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @AppStorage("rewardNotificationEnabled") private var rewardNotificationEnabled = true
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("ごほうび券交換通知", isOn: $rewardNotificationEnabled)
+            } footer: {
+                Text("通知はごほうび券が交換されたときだけ送ります。ちゃりん、スタンプ、使用済みでは通知しません。")
+            }
+
+            Section {
+                Button {
+                    Task { await appState.requestPushNotifications() }
+                } label: {
+                    SettingsActionRow(
+                        title: appState.notificationsEnabled ? "Push通知はオンです" : "Push通知を許可",
+                        systemImage: appState.notificationsEnabled ? "bell.badge.fill" : "bell.fill"
+                    )
+                }
+                .disabled(appState.isProcessing || appState.notificationsEnabled)
+            }
+        }
+        .modernFormBackground()
+        .navigationTitle("通知設定")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct AppPreferenceSettingsView: View {
+    @AppStorage("soundEffectsEnabled") private var soundEffectsEnabled = true
+    @AppStorage("themeMode") private var themeMode = "system"
+
+    var body: some View {
+        List {
+            Section("音") {
+                Toggle("効果音", isOn: $soundEffectsEnabled)
+            }
+
+            Section {
+                Picker("表示", selection: $themeMode) {
+                    Text("端末に合わせる").tag("system")
+                    Text("ライト").tag("light")
+                }
+                .pickerStyle(.inline)
+            } header: {
+                Text("テーマ")
+            } footer: {
+                Text("ダークテーマは後続フェーズで仕上げます。Priority 1はライトテーマ基準です。")
+            }
+        }
+        .modernFormBackground()
+        .navigationTitle("音とテーマ")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -2508,25 +2690,48 @@ private struct RewardEmptyState: View {
 }
 
 struct RecordsView: View {
-    private enum RecordFilter: String, CaseIterable {
+    private enum ActorFilter: String, CaseIterable {
+        case all = "すべて"
+        case mine = "自分"
+        case partner = "相手"
+    }
+
+    private enum BankRecordFilter: String, CaseIterable {
         case all = "すべて"
         case personal = "自分"
         case shared = "ふたり"
     }
 
     @EnvironmentObject private var appState: AppState
-    @State private var filter: RecordFilter = .all
+    @State private var actorFilter: ActorFilter = .all
+    @State private var bankFilter: BankRecordFilter = .all
     @State private var reactionRecordId: String?
+    @State private var selectedTicket: Ticket?
 
     private var visibleRecords: [ActivityRecord] {
         appState.records
             .filter { $0.status == .active }
             .filter { record in
-                guard filter != .all else { return true }
+                switch actorFilter {
+                case .all: return true
+                case .mine: return record.userId == appState.authenticatedUser?.id
+                case .partner: return record.userId != appState.authenticatedUser?.id
+                }
+            }
+            .filter { record in
+                guard bankFilter != .all else { return true }
                 let ownerType = appState.initialTemplate?.piggyBanks.first { $0.id == record.piggyBankId }?.ownerType
-                return filter == .personal ? ownerType == .personal : ownerType == .shared
+                return bankFilter == .personal ? ownerType == .personal : ownerType == .shared
             }
             .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var monthlyCharinTotal: Int {
+        let calendar = Calendar.current
+        return visibleRecords
+            .filter { $0.type == .charin && calendar.isDate($0.createdAt, equalTo: Date(), toGranularity: .month) }
+            .map(\.coinDelta)
+            .reduce(0, +)
     }
 
     private var dayGroups: [(date: Date, records: [ActivityRecord])] {
@@ -2538,10 +2743,22 @@ struct RecordsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TopTabBar(
-                items: RecordFilter.allCases.map { ($0, $0.rawValue) },
-                selection: $filter
-            )
+            VStack(spacing: 12) {
+                MonthlyRecordSummary(totalCoins: monthlyCharinTotal)
+
+                RecordFilterChipRow(
+                    title: "表示",
+                    items: ActorFilter.allCases.map { ($0, $0.rawValue) },
+                    selection: $actorFilter
+                )
+
+                RecordFilterChipRow(
+                    title: "貯金箱",
+                    items: BankRecordFilter.allCases.map { ($0, $0.rawValue) },
+                    selection: $bankFilter
+                )
+            }
+            .padding(.horizontal, 16)
             .padding(.bottom, 12)
 
             if dayGroups.isEmpty {
@@ -2574,6 +2791,9 @@ struct RecordsView: View {
                                             onSelectReaction: { stamp in
                                                 reactionRecordId = nil
                                                 Task { _ = await appState.setReaction(stamp, for: record) }
+                                            },
+                                            onOpenTicket: ticket(for: record).map { ticket in
+                                                { selectedTicket = ticket }
                                             }
                                         )
                                         .zIndex(reactionRecordId == record.id ? 1 : 0)
@@ -2596,7 +2816,11 @@ struct RecordsView: View {
         }
         .background(Color.appBackground)
         .brandNavigationTitle("きろく")
-        .onChange(of: filter) { reactionRecordId = nil }
+        .sheet(item: $selectedTicket) { ticket in
+            NavigationStack { TicketDetailView(ticket: ticket) }
+        }
+        .onChange(of: actorFilter) { reactionRecordId = nil }
+        .onChange(of: bankFilter) { reactionRecordId = nil }
     }
 
     private func dayTitle(_ date: Date) -> String {
@@ -2616,6 +2840,77 @@ struct RecordsView: View {
     private func canReact(to record: ActivityRecord) -> Bool {
         record.type == .charin && record.userId != appState.authenticatedUser?.id
     }
+
+    private func ticket(for record: ActivityRecord) -> Ticket? {
+        switch record.targetType {
+        case "ticket":
+            return appState.tickets.first { $0.id == record.targetId }
+        case "reward":
+            return appState.tickets.first { $0.rewardId == record.targetId }
+        default:
+            return nil
+        }
+    }
+}
+
+private struct RecordFilterChipRow<Selection: Hashable>: View {
+    let title: String
+    let items: [(Selection, String)]
+    @Binding var selection: Selection
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.appSecondary)
+            HStack(spacing: 8) {
+                ForEach(items, id: \.0) { item in
+                    Button {
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
+                            selection = item.0
+                        }
+                    } label: {
+                        Text(item.1)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(selection == item.0 ? Color.appText : Color.appSecondary)
+                            .frame(maxWidth: .infinity, minHeight: 38)
+                            .background(selection == item.0 ? Color.appPrimarySoft : Color.appSurface)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.appBorder))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+private struct MonthlyRecordSummary: View {
+    let totalCoins: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar.badge.checkmark")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Color.appPrimary)
+                .frame(width: 38, height: 38)
+                .background(Color.appPrimarySoft)
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text("今月のちゃりん")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.appSecondary)
+                Text("\(totalCoins)コイン")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(Color.appSurface)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+        .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
+    }
 }
 
 private struct RecordHistoryRow: View {
@@ -2626,6 +2921,7 @@ private struct RecordHistoryRow: View {
     let showsReactionPicker: Bool
     let onToggleReactionPicker: () -> Void
     let onSelectReaction: (Reaction.StampType) -> Void
+    let onOpenTicket: (() -> Void)?
 
     private var actionText: String {
         switch record.type {
@@ -2670,6 +2966,10 @@ private struct RecordHistoryRow: View {
             }
         }
         .padding(12)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onOpenTicket?()
+        }
         .overlay(alignment: .bottomTrailing) {
             if showsReactionPicker {
                 HStack(spacing: 2) {

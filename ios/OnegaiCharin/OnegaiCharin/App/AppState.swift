@@ -48,6 +48,7 @@ final class AppState: ObservableObject {
     private let pendingInviteStorageKey = "pendingInvite"
     private var partnerObservation: AppObservation?
     private var reactionObservation: AppObservation?
+    private var recordObservation: AppObservation?
 
     init(repository: (any AppRepository)? = nil) {
         if let repository {
@@ -277,6 +278,21 @@ final class AppState: ObservableObject {
             self.displayName = updated.displayName
             selectedEmoji = updated.iconEmoji
             showToast(message: "プロフィールを保存しました", systemImage: "checkmark.circle.fill")
+        }
+    }
+
+    func updateCoupleName(_ name: String) async -> Bool {
+        guard let current = initialTemplate else { return false }
+        return await perform {
+            let updatedGroup = try await repository.updateGroupName(groupId: current.group.id, name: name)
+            initialTemplate = InitialTemplateResult(
+                group: updatedGroup,
+                piggyBanks: current.piggyBanks,
+                requests: current.requests,
+                rewards: current.rewards,
+                invite: current.invite
+            )
+            showToast(message: "カップル名を保存しました", systemImage: "checkmark.circle.fill")
         }
     }
 
@@ -571,10 +587,29 @@ final class AppState: ObservableObject {
         reactionObservation = nil
     }
 
+    func startObservingRecords() {
+        guard recordObservation == nil, let groupId = initialTemplate?.group.id else { return }
+        recordObservation = repository.observeRecords(groupId: groupId) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let updatedRecords):
+                records = updatedRecords
+            case .failure(let error):
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func stopObservingRecords() {
+        recordObservation?.cancel()
+        recordObservation = nil
+    }
+
     func signOut() async {
         await perform {
             stopObservingInviteCompletion()
             stopObservingReactions()
+            stopObservingRecords()
             try await repository.signOut()
             reset()
         }
@@ -616,6 +651,7 @@ final class AppState: ObservableObject {
         }
         if template.group.memberIds.count >= 2 {
             phase = .main
+            startObservingRecords()
             startObservingReactions()
         } else {
             phase = .inviteWaiting
@@ -643,6 +679,7 @@ final class AppState: ObservableObject {
         self.pendingInvite = nil
         persistPendingInvite()
         phase = .main
+        startObservingRecords()
         startObservingReactions()
     }
 
@@ -656,6 +693,7 @@ final class AppState: ObservableObject {
             tickets = session.tickets
             reactions = session.reactions
             phase = .main
+            startObservingRecords()
             startObservingReactions()
         }
     }
@@ -860,6 +898,7 @@ final class AppState: ObservableObject {
     func reset() {
         stopObservingInviteCompletion()
         stopObservingReactions()
+        stopObservingRecords()
         onboardingPage = 0
         displayName = ""
         selectedEmoji = nil

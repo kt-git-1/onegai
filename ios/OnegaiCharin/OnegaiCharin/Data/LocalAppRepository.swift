@@ -12,6 +12,7 @@ final class LocalAppRepository: AppRepository {
     private(set) var revokedInviteIds: Set<String> = []
     private var inviteSequence = 1
     private var memberObservers: [UUID: (Result<Int, Error>) -> Void] = [:]
+    private var recordObservers: [UUID: (Result<[ActivityRecord], Error>) -> Void] = [:]
 
     func signIn(with provider: AuthenticationProvider) async throws -> AuthUser {
         await pause()
@@ -69,6 +70,27 @@ final class LocalAppRepository: AppRepository {
         )
         profile = value
         return value
+    }
+
+    func updateGroupName(groupId: String, name: String) async throws -> CoupleGroup {
+        await pause()
+        guard var current = template, current.group.id == groupId else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { throw AppRepositoryError.invalidRequest }
+        var group = current.group
+        group.name = trimmedName
+        group.updatedAt = Date()
+        current = InitialTemplateResult(
+            group: group,
+            piggyBanks: current.piggyBanks,
+            requests: current.requests,
+            rewards: current.rewards,
+            invite: current.invite
+        )
+        template = current
+        return group
     }
 
     func createInitialTemplate() async throws -> InitialTemplateResult {
@@ -359,6 +381,7 @@ final class LocalAppRepository: AppRepository {
         )
         tickets.insert(ticket, at: 0)
         records.insert(record, at: 0)
+        notifyRecordObservers(groupId: groupId)
         return RewardExchangeResult(ticket: ticket, record: record)
     }
 
@@ -386,6 +409,7 @@ final class LocalAppRepository: AppRepository {
             status: .active, createdAt: now, canceledAt: nil
         )
         records.insert(record, at: 0)
+        notifyRecordObservers(groupId: ticket.groupId)
         return TicketUseResult(ticket: ticket, record: record)
     }
 
@@ -463,6 +487,7 @@ final class LocalAppRepository: AppRepository {
         current = replacingTemplate(current, banks: banks, requests: requests)
         template = current
         records.insert(record, at: 0)
+        notifyRecordObservers(groupId: groupId)
         return CharinResult(
             record: record,
             requestId: request.id,
@@ -521,6 +546,7 @@ final class LocalAppRepository: AppRepository {
         current = replacingTemplate(current, banks: banks, requests: requests)
         template = current
         records[recordIndex] = canceledRecord
+        notifyRecordObservers(groupId: record.groupId)
         return CharinCancellationResult(
             recordId: record.id,
             requestId: request.id,
@@ -576,6 +602,18 @@ final class LocalAppRepository: AppRepository {
         return AppObservation {}
     }
 
+    func observeRecords(
+        groupId: String,
+        onChange: @escaping (Result<[ActivityRecord], Error>) -> Void
+    ) -> AppObservation {
+        let id = UUID()
+        recordObservers[id] = onChange
+        onChange(.success(activeRecords(groupId: groupId)))
+        return AppObservation { [weak self] in
+            self?.recordObservers[id] = nil
+        }
+    }
+
     func saveDeviceToken(_ token: String) async throws {
         await pause()
         guard authenticatedUser != nil else { throw AppRepositoryError.unauthenticated }
@@ -599,6 +637,17 @@ final class LocalAppRepository: AppRepository {
     func signOut() async throws {
         await pause()
         authenticatedUser = nil
+    }
+
+    private func notifyRecordObservers(groupId: String) {
+        let updatedRecords = activeRecords(groupId: groupId)
+        recordObservers.values.forEach { $0(.success(updatedRecords)) }
+    }
+
+    private func activeRecords(groupId: String) -> [ActivityRecord] {
+        records
+            .filter { $0.groupId == groupId && $0.status == .active }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
     private func authenticate(email: String) -> AuthUser {

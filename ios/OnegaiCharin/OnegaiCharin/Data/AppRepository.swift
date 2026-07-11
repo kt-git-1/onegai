@@ -75,6 +75,7 @@ protocol AppRepository {
     func sendPasswordReset(email: String) async throws
     func loadSession() async throws -> AppSession
     func saveProfile(displayName: String, iconEmoji: String?) async throws -> UserProfile
+    func updateGroupName(groupId: String, name: String) async throws -> CoupleGroup
     func createInitialTemplate() async throws -> InitialTemplateResult
     func reissueInvite() async throws -> Invite
     func resolveInvite(identifier: String) async throws -> InvitePreview
@@ -97,6 +98,10 @@ protocol AppRepository {
     func observeReactions(
         groupId: String,
         onChange: @escaping (Result<[Reaction], Error>) -> Void
+    ) -> AppObservation
+    func observeRecords(
+        groupId: String,
+        onChange: @escaping (Result<[ActivityRecord], Error>) -> Void
     ) -> AppObservation
     func saveDeviceToken(_ token: String) async throws
     func completeInviteForPreview() async throws

@@ -79,7 +79,11 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         app.buttons["設定"].tap()
         XCTAssertTrue(app.navigationBars["設定"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["名前とアイコンを編集"].exists)
+        XCTAssertTrue(app.staticTexts["カップル名"].exists)
+        XCTAssertTrue(app.staticTexts["相手"].exists)
         XCTAssertTrue(app.staticTexts["招待コード"].exists)
+        XCTAssertTrue(app.staticTexts["通知設定"].exists)
+        XCTAssertTrue(app.staticTexts["音とテーマ"].exists)
     }
 
     func testCharinReturnsHomeWithRemainingUndoTime() {

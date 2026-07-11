@@ -137,6 +137,18 @@ final class FirebaseAppRepository: AppRepository {
         return profile
     }
 
+    func updateGroupName(groupId: String, name: String) async throws -> CoupleGroup {
+        guard auth.currentUser != nil else { throw AppRepositoryError.unauthenticated }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { throw AppRepositoryError.invalidRequest }
+        let reference = firestore.collection("groups").document(groupId)
+        try await reference.setData([
+            "name": trimmedName,
+            "updatedAt": FieldValue.serverTimestamp(),
+        ], merge: true)
+        return try mapGroup(try await reference.getDocument())
+    }
+
     func createInitialTemplate() async throws -> InitialTemplateResult {
         let response = try await functions.httpsCallable("createInitialTemplate").call()
         guard
@@ -512,6 +524,36 @@ final class FirebaseAppRepository: AppRepository {
                     }
                     do {
                         onChange(.success(try snapshot.documents.map(self.mapReaction)))
+                    } catch {
+                        onChange(.failure(error))
+                    }
+                }
+        }
+        return AppObservation { registration.remove() }
+    }
+
+    func observeRecords(
+        groupId: String,
+        onChange: @escaping (Result<[ActivityRecord], Error>) -> Void
+    ) -> AppObservation {
+        let registration = firestore.collection("records")
+            .whereField("groupId", isEqualTo: groupId)
+            .addSnapshotListener { snapshot, error in
+                Task { @MainActor in
+                    if let error {
+                        onChange(.failure(error))
+                        return
+                    }
+                    guard let snapshot else {
+                        onChange(.failure(AppRepositoryError.invalidBackendResponse))
+                        return
+                    }
+                    do {
+                        let records = try snapshot.documents
+                            .map(self.mapRecord)
+                            .filter { $0.status == .active }
+                            .sorted { $0.createdAt > $1.createdAt }
+                        onChange(.success(records))
                     } catch {
                         onChange(.failure(error))
                     }
