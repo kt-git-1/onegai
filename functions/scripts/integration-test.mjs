@@ -95,7 +95,7 @@ const checks = {
   group: group.exists,
   members: members.size === 1,
   piggyBanks: banks.size === 2,
-  requests: requests.size === 5,
+  requests: requests.size === 6,
   rewards: rewards.size === 3,
   invites: invites.size === 1,
   activeGroupId: user.get("activeGroupId") === result.groupId,

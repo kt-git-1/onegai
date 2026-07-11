@@ -588,14 +588,18 @@ private struct BankCard: View {
                     }
                     Spacer()
                     if remainingCoins == 0 {
-                        Button("交換する") { onExchange(targetReward) }
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color.appText)
-                            .padding(.horizontal, 14)
-                            .frame(height: 34)
-                            .background(Color.appPrimary)
-                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
-                            .accessibilityIdentifier("home-exchange-reward-button")
+                        Button(action: { onExchange(targetReward) }) {
+                            Text("交換する")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(Color.appText)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: 44)
+                                .background(Color.appPrimary)
+                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                        .accessibilityIdentifier("home-exchange-reward-button")
                     } else {
                         Text("あと\(remainingCoins.formatted())")
                             .font(.system(size: 13, weight: .bold))
@@ -738,25 +742,36 @@ private struct RequestRow: View {
     let onCharin: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(request.iconEmoji)
-                .font(.system(size: 22))
-                .frame(width: 40, height: 40)
-                .background(Color.appPrimarySoft)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(request.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                Text("+\(request.coinAmount)コイン ・ \(request.repeatType.displayName)").font(.system(size: 11)).foregroundStyle(Color.appSecondary)
+        Button(action: onCharin) {
+            HStack(spacing: 10) {
+                Text(request.iconEmoji)
+                    .font(.system(size: 22))
+                    .frame(width: 40, height: 40)
+                    .background(Color.appPrimarySoft)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(request.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.appText)
+                        .lineLimit(1)
+                    Text("+\(request.coinAmount)コイン ・ \(request.repeatType.displayName)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.appSecondary)
+                }
+                Spacer()
+                Text("ちゃりん")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.appText)
+                    .padding(.horizontal, 13)
+                    .frame(height: 36)
+                    .background(Color.appPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
             }
-            Spacer()
-            Button("ちゃりん", action: onCharin)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.appText)
-                .padding(.horizontal, 13).frame(height: 36)
-                .background(Color.appPrimary).clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
-                .accessibilityIdentifier("home-charin-\(request.id)")
+            .padding(12)
+            .contentShape(Rectangle())
         }
-        .padding(12)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("home-charin-\(request.id)")
     }
 }
 
@@ -901,13 +916,18 @@ private struct RequestListCard: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onTap)
 
-                Button("ちゃりん", action: onCharin)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.appText)
-                    .padding(.horizontal, 12)
-                    .frame(height: 38)
-                    .background(Color.appPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                Button(action: onCharin) {
+                    Text("ちゃりん")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.appText)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 44)
+                        .background(Color.appPrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("request-list-charin-\(request.id)")
             }
             .padding(12)
 
@@ -1792,77 +1812,85 @@ private struct RewardCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                Text(reward.iconEmoji)
-                    .font(.system(size: 32))
-                    .frame(width: 52, height: 52)
-                    .background(Color.appPrimarySoft)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Text(reward.iconEmoji)
+                            .font(.system(size: 32))
+                            .frame(width: 52, height: 52)
+                            .background(Color.appPrimarySoft)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 6) {
-                        Text(reward.title)
-                            .font(.system(size: 17, weight: .bold))
-                            .lineLimit(2)
-                    }
-                    Label(
-                        reward.piggyBankType == .shared ? "ふたりの貯金箱" : "自分の貯金箱",
-                        systemImage: reward.piggyBankType == .shared ? "person.2.fill" : "person.fill"
-                    )
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.appSecondary)
-                }
-                    Spacer(minLength: 4)
-                    if canEdit {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 6) {
+                                Text(reward.title)
+                                    .font(.system(size: 17, weight: .bold))
+                                    .lineLimit(2)
+                            }
+                            Label(
+                                reward.piggyBankType == .shared ? "ふたりの貯金箱" : "自分の貯金箱",
+                                systemImage: reward.piggyBankType == .shared ? "person.2.fill" : "person.fill"
+                            )
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(Color.appSecondary)
+                        }
+                        Spacer(minLength: 4)
+                        if canEdit {
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.appSecondary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("必要コイン")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color.appSecondary)
+                        Spacer()
+                        Text("\(reward.requiredCoins.formatted())")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                        Text("コイン")
+                            .font(.system(size: 13, weight: .semibold))
                     }
                 }
-
-                HStack(alignment: .firstTextBaseline) {
-                Text("必要コイン")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.appSecondary)
-                Spacer()
-                Text("\(reward.requiredCoins.formatted())")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                Text("コイン")
-                    .font(.system(size: 13, weight: .semibold))
-                }
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onTap)
 
                 ProgressView(value: progress)
                     .tint(isExchangeable ? Color.appSuccess : Color.appPrimary)
 
                 HStack {
-                Text("\(balance.formatted()) / \(reward.requiredCoins.formatted())コイン")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.appSecondary)
-                Spacer()
-                if isExchanged {
-                    Label("交換済み", systemImage: "checkmark.seal.fill")
-                        .font(.system(size: 14, weight: .bold))
+                    Text("\(balance.formatted()) / \(reward.requiredCoins.formatted())コイン")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.appSecondary)
-                } else if isExchangeable {
-                    Label("交換できます", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color.appSuccess)
-                } else {
-                    Text("あと\(remaining.formatted())コイン")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color.appHeart)
-                }
+                    Spacer()
+                    if isExchanged {
+                        Label("交換済み", systemImage: "checkmark.seal.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.appSecondary)
+                    } else if isExchangeable {
+                        Label("交換できます", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.appSuccess)
+                    } else {
+                        Text("あと\(remaining.formatted())コイン")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.appHeart)
+                    }
                 }
 
                 if isExchangeable {
-                    Button("交換する", action: onExchange)
-                        .buttonStyle(PrimaryButtonStyle())
-                        .accessibilityIdentifier("exchange-reward-\(reward.id)")
+                    Button(action: onExchange) {
+                        Text("交換する")
+                            .font(.system(size: 16, weight: .bold))
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("exchange-reward-\(reward.id)")
                 }
             }
             .padding(16)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onTap)
 
             if isExpanded && canEdit {
                 Divider()
@@ -2057,36 +2085,41 @@ private struct TicketListCard: View {
     let onShow: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            Text(ticket.iconEmoji)
-                .font(.system(size: 34))
-                .frame(width: 54, height: 54)
-                .background(Color.appPrimarySoft)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 5) {
-                Text(ticket.title).font(.system(size: 17, weight: .bold))
-                Text(ticket.ticketType == .shared ? "ふたりの券" : "個人の券")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.appSecondary)
-                Text(ticket.status == .used ?
-                     "使用日：\(ticket.usedAt?.formatted(date: .abbreviated, time: .omitted) ?? "-")" :
-                     (ticket.expiresAt.map { "期限：\($0.formatted(date: .abbreviated, time: .omitted))" } ?? "期限なし"))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.appSecondary)
+        Button(action: onShow) {
+            HStack(spacing: 14) {
+                Text(ticket.iconEmoji)
+                    .font(.system(size: 34))
+                    .frame(width: 54, height: 54)
+                    .background(Color.appPrimarySoft)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(ticket.title)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(Color.appText)
+                    Text(ticket.ticketType == .shared ? "ふたりの券" : "個人の券")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.appSecondary)
+                    Text(ticket.status == .used ?
+                         "使用日：\(ticket.usedAt?.formatted(date: .abbreviated, time: .omitted) ?? "-")" :
+                         (ticket.expiresAt.map { "期限：\($0.formatted(date: .abbreviated, time: .omitted))" } ?? "期限なし"))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color.appSecondary)
+                }
+                Spacer()
+                Text("券を表示")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.appHeart)
             }
-            Spacer()
-            Button("券を表示", action: onShow)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color.appHeart)
-                .accessibilityIdentifier("show-ticket-\(ticket.id)")
+            .padding(16)
+            .contentShape(Rectangle())
         }
-        .padding(16)
+        .buttonStyle(.plain)
         .background(Color.appSurface)
         .opacity(ticket.status == .used ? 0.58 : 1)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(color: Color.appText.opacity(0.055), radius: 8, y: 3)
-        .accessibilityIdentifier("ticket-card-\(ticket.id)")
+        .accessibilityIdentifier("券を表示")
     }
 }
 
@@ -2627,11 +2660,12 @@ private struct RecordHistoryRow: View {
                 Button(action: onToggleReactionPicker) {
                     Text(reaction?.stampType.emoji ?? "☺️")
                         .font(.system(size: 19))
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                         .background(reaction == nil ? Color.appBackground : Color.appPrimarySoft)
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .contentShape(Rectangle())
                 .accessibilityLabel(reaction == nil ? "スタンプを選ぶ" : "スタンプを変更")
             }
         }

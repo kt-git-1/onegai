@@ -21,6 +21,10 @@ service cloud.firestore {
         && request.resource.data.createdBy == resource.data.createdBy;
     }
 
+    function hasOnlyKeys(keys) {
+      return request.resource.data.keys().hasOnly(keys);
+    }
+
     match /users/{userId} {
       allow read: if isSelf(userId)
         || (resource.data.activeGroupId != null && isGroupMember(resource.data.activeGroupId));
@@ -75,11 +79,29 @@ service cloud.firestore {
 
     match /reactions/{reactionId} {
       allow read: if isGroupMember(resource.data.groupId);
-      allow create, update: if isGroupMember(request.resource.data.groupId)
+      allow create: if signedIn()
+        && reactionId == request.resource.data.recordId + '_' + request.auth.uid
+        && isGroupMember(request.resource.data.groupId)
         && request.resource.data.userId == request.auth.uid
+        && hasOnlyKeys(['groupId', 'recordId', 'userId', 'stampType', 'createdAt', 'updatedAt'])
         && exists(/databases/$(database)/documents/records/$(request.resource.data.recordId))
+        && get(/databases/$(database)/documents/records/$(request.resource.data.recordId)).data.groupId == request.resource.data.groupId
         && get(/databases/$(database)/documents/records/$(request.resource.data.recordId)).data.userId != request.auth.uid
-        && get(/databases/$(database)/documents/records/$(request.resource.data.recordId)).data.type == 'charin';
+        && get(/databases/$(database)/documents/records/$(request.resource.data.recordId)).data.type == 'charin'
+        && get(/databases/$(database)/documents/records/$(request.resource.data.recordId)).data.status == 'active';
+      allow update: if signedIn()
+        && reactionId == resource.data.recordId + '_' + request.auth.uid
+        && isGroupMember(resource.data.groupId)
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.groupId == resource.data.groupId
+        && request.resource.data.recordId == resource.data.recordId
+        && request.resource.data.userId == resource.data.userId
+        && hasOnlyKeys(['groupId', 'recordId', 'userId', 'stampType', 'createdAt', 'updatedAt'])
+        && exists(/databases/$(database)/documents/records/$(resource.data.recordId))
+        && get(/databases/$(database)/documents/records/$(resource.data.recordId)).data.groupId == resource.data.groupId
+        && get(/databases/$(database)/documents/records/$(resource.data.recordId)).data.userId != request.auth.uid
+        && get(/databases/$(database)/documents/records/$(resource.data.recordId)).data.type == 'charin'
+        && get(/databases/$(database)/documents/records/$(resource.data.recordId)).data.status == 'active';
       allow delete: if false;
     }
 
@@ -89,9 +111,16 @@ service cloud.firestore {
     }
 
     match /devices/{deviceId} {
-      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isSelf(deviceId) && resource.data.userId == request.auth.uid;
       allow create, update: if signedIn()
-        && request.resource.data.userId == request.auth.uid;
+        && deviceId == request.auth.uid
+        && request.resource.data.id == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.platform == 'ios'
+        && hasOnlyKeys(['id', 'userId', 'fcmToken', 'platform', 'appVersion', 'createdAt', 'updatedAt'])
+        && request.resource.data.fcmToken is string
+        && request.resource.data.fcmToken.size() > 0
+        && request.resource.data.fcmToken.size() <= 4096;
       allow delete: if false;
     }
 

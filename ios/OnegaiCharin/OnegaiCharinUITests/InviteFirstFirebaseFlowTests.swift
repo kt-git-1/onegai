@@ -44,6 +44,17 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["ちゃりん！"].waitForExistence(timeout: 3))
     }
 
+    func testHomeRequestRowTapCanCharin() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-previewPhase", "main", "-holdCharinCelebration"]
+        app.launch()
+
+        let row = app.buttons["home-charin-request-massage"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.tap()
+        XCTAssertTrue(app.buttons["confirm-charin-button"].waitForExistence(timeout: 2))
+    }
+
     func testRecordsCanReactToPartnersCharin() {
         let app = XCUIApplication()
         app.launchArguments = ["-previewPhase", "main", "-previewTab", "records"]

@@ -83,12 +83,22 @@ async function displayName(userId: string): Promise<string> {
   return String(snapshot.get("displayName") ?? "相手");
 }
 
-async function tokensForUsers(userIds: string[]): Promise<string[]> {
+type DeviceToken = {
+  userId: string;
+  token: string;
+};
+
+async function tokensForUsers(userIds: string[]): Promise<DeviceToken[]> {
   const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
   const snapshots = await Promise.all(uniqueUserIds.map((userId) => db.collection("devices").doc(userId).get()));
-  return [...new Set(snapshots
-    .map((snapshot) => snapshot.get("fcmToken"))
-    .filter((token): token is string => typeof token === "string" && token.length > 0))];
+  const seenTokens = new Set<string>();
+  return snapshots.flatMap((snapshot) => {
+    const token = snapshot.get("fcmToken");
+    const userId = String(snapshot.get("userId") ?? snapshot.id);
+    if (typeof token !== "string" || token.length === 0 || seenTokens.has(token)) return [];
+    seenTokens.add(token);
+    return [{userId, token}];
+  });
 }
 
 async function sendPushToUsers(
@@ -96,11 +106,11 @@ async function sendPushToUsers(
   notification: {title: string; body: string},
   data: Record<string, string>,
 ): Promise<void> {
-  const tokens = await tokensForUsers(userIds);
-  if (tokens.length === 0) return;
+  const devices = await tokensForUsers(userIds);
+  if (devices.length === 0) return;
   try {
-    await getMessaging().sendEachForMulticast({
-      tokens,
+    const response = await getMessaging().sendEachForMulticast({
+      tokens: devices.map((device) => device.token),
       notification,
       data,
       apns: {
@@ -111,6 +121,14 @@ async function sendPushToUsers(
         },
       },
     });
+    const invalidDeviceIds = response.responses.flatMap((result, index) => {
+      const code = result.error?.code;
+      if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
+        return [devices[index].userId];
+      }
+      return [];
+    });
+    await Promise.all(invalidDeviceIds.map((userId) => db.collection("devices").doc(userId).delete()));
   } catch (error) {
     console.error("Failed to send push notification", error);
   }
@@ -156,6 +174,8 @@ export const notifyInviteAccepted = onDocumentCreated("groupMembers/{memberId}",
   const group = await db.collection("groups").doc(groupId).get();
   const ownerId = String(group.get("createdBy") ?? "");
   if (!ownerId || ownerId === userId) return;
+  const ownerMember = await db.collection("groupMembers").doc(`${groupId}_${ownerId}`).get();
+  if (ownerMember.get("status") !== "active") return;
 
   const actorName = await displayName(userId);
   await sendPushToUsers(
