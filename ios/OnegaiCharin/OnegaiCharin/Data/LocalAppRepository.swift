@@ -8,6 +8,7 @@ final class LocalAppRepository: AppRepository {
     private(set) var template: InitialTemplateResult?
     private(set) var records: [ActivityRecord] = []
     private(set) var tickets: [Ticket] = []
+    private(set) var reactions: [Reaction] = []
     private(set) var revokedInviteIds: Set<String> = []
     private var inviteSequence = 1
     private var memberObservers: [UUID: (Result<Int, Error>) -> Void] = [:]
@@ -46,7 +47,7 @@ final class LocalAppRepository: AppRepository {
         } else {
             partnerProfile = nil
         }
-        return AppSession(profile: profile, initialTemplate: template, partnerProfile: partnerProfile, records: records, tickets: tickets)
+        return AppSession(profile: profile, initialTemplate: template, partnerProfile: partnerProfile, records: records, tickets: tickets, reactions: reactions)
     }
 
     func saveProfile(displayName: String, iconEmoji: String?) async throws -> UserProfile {
@@ -530,6 +531,29 @@ final class LocalAppRepository: AppRepository {
         )
     }
 
+    func upsertReaction(record: ActivityRecord, stampType: Reaction.StampType) async throws -> Reaction {
+        await pause()
+        guard let user = authenticatedUser else { throw AppRepositoryError.unauthenticated }
+        guard record.type == .charin, record.status == .active, record.userId != user.id else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        let id = "\(record.id)_\(user.id)"
+        let now = Date()
+        let createdAt = reactions.first { $0.id == id }?.createdAt ?? now
+        let reaction = Reaction(
+            id: id,
+            groupId: record.groupId,
+            recordId: record.id,
+            userId: user.id,
+            stampType: stampType,
+            createdAt: createdAt,
+            updatedAt: now
+        )
+        reactions.removeAll { $0.id == id }
+        reactions.append(reaction)
+        return reaction
+    }
+
     func observeGroupMemberCount(
         groupId: String,
         onChange: @escaping (Result<Int, Error>) -> Void
@@ -542,6 +566,19 @@ final class LocalAppRepository: AppRepository {
         return AppObservation { [weak self] in
             self?.memberObservers[id] = nil
         }
+    }
+
+    func observeReactions(
+        groupId: String,
+        onChange: @escaping (Result<[Reaction], Error>) -> Void
+    ) -> AppObservation {
+        onChange(.success(reactions.filter { $0.groupId == groupId }))
+        return AppObservation {}
+    }
+
+    func saveDeviceToken(_ token: String) async throws {
+        await pause()
+        guard authenticatedUser != nil else { throw AppRepositoryError.unauthenticated }
     }
 
     func completeInviteForPreview() async throws {

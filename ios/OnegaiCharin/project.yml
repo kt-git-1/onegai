@@ -31,6 +31,8 @@ targets:
         product: FirebaseFunctions
       - package: Firebase
         product: FirebaseAnalytics
+      - package: Firebase
+        product: FirebaseMessaging
       - package: GoogleSignIn
         product: GoogleSignIn
     settings:
@@ -50,6 +52,7 @@ targets:
           - Default
         com.apple.developer.associated-domains:
           - applinks:onegai-charin-dev.web.app
+        aps-environment: development
     info:
       path: OnegaiCharin/Info.plist
       properties:

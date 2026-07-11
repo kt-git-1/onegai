@@ -22,6 +22,28 @@ final class LocalAppRepositoryTests: XCTestCase {
         XCTAssertEqual(result.invite.status, .active)
     }
 
+    func testReactionCanBeAddedAndChangedForPartnersCharin() async throws {
+        let repository = LocalAppRepository()
+        let user = try await repository.register(email: "owner@example.com", password: "password")
+        _ = try await repository.saveProfile(displayName: "花男", iconEmoji: nil)
+        let template = try await repository.createInitialTemplate()
+        let now = Date()
+        let record = ActivityRecord(
+            id: "partner-record", groupId: template.group.id, userId: "partner-preview",
+            type: .charin, targetType: "request", targetId: "request-massage",
+            title: "マッサージ10分", iconEmoji: "💆", coinDelta: 100,
+            piggyBankId: template.piggyBanks[0].id, piggyBankName: template.piggyBanks[0].name,
+            balanceBefore: 0, balanceAfter: 100, status: .active, createdAt: now, canceledAt: nil
+        )
+
+        let first = try await repository.upsertReaction(record: record, stampType: .arigatou)
+        let changed = try await repository.upsertReaction(record: record, stampType: .suki)
+
+        XCTAssertEqual(first.id, "partner-record_\(user.id)")
+        XCTAssertEqual(changed.stampType, .suki)
+        XCTAssertEqual(repository.reactions.count, 1)
+    }
+
     func testProfileIsRequiredBeforeTemplateCreation() async throws {
         let repository = LocalAppRepository()
         _ = try await repository.signIn(with: .apple)

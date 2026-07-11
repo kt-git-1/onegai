@@ -54,14 +54,16 @@ final class FirebaseAppRepository: AppRepository {
         async let inviteDocuments = firestore.collection("invites").whereField("groupId", isEqualTo: groupId).getDocuments()
         async let recordDocuments = firestore.collection("records").whereField("groupId", isEqualTo: groupId).getDocuments()
         async let ticketDocuments = firestore.collection("tickets").whereField("groupId", isEqualTo: groupId).getDocuments()
-        let (groupSnapshot, bankSnapshot, requestSnapshot, rewardSnapshot, inviteSnapshot, recordSnapshot, ticketSnapshot) = try await (
+        async let reactionDocuments = firestore.collection("reactions").whereField("groupId", isEqualTo: groupId).getDocuments()
+        let (groupSnapshot, bankSnapshot, requestSnapshot, rewardSnapshot, inviteSnapshot, recordSnapshot, ticketSnapshot, reactionSnapshot) = try await (
             groupDocument,
             bankDocuments,
             requestDocuments,
             rewardDocuments,
             inviteDocuments,
             recordDocuments,
-            ticketDocuments
+            ticketDocuments,
+            reactionDocuments
         )
 
         let group = try mapGroup(groupSnapshot)
@@ -90,12 +92,14 @@ final class FirebaseAppRepository: AppRepository {
         let tickets = try ticketSnapshot.documents
             .map(mapTicket)
             .sorted { $0.issuedAt > $1.issuedAt }
+        let reactions = try reactionSnapshot.documents.map(mapReaction)
         return AppSession(
             profile: profile,
             initialTemplate: initialTemplate,
             partnerProfile: partnerProfile,
             records: records,
-            tickets: tickets
+            tickets: tickets,
+            reactions: reactions
         )
     }
 
@@ -449,6 +453,27 @@ final class FirebaseAppRepository: AppRepository {
         )
     }
 
+    func upsertReaction(record: ActivityRecord, stampType: Reaction.StampType) async throws -> Reaction {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        guard record.type == .charin, record.status == .active, record.userId != userId else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        let id = "\(record.id)_\(userId)"
+        let reference = firestore.collection("reactions").document(id)
+        let previous = try await reference.getDocument()
+        let now = Date()
+        let createdAt = (previous.get("createdAt") as? Timestamp)?.dateValue() ?? now
+        try await reference.setData([
+            "groupId": record.groupId,
+            "recordId": record.id,
+            "userId": userId,
+            "stampType": stampType.rawValue,
+            "createdAt": Timestamp(date: createdAt),
+            "updatedAt": Timestamp(date: now),
+        ])
+        return Reaction(id: id, groupId: record.groupId, recordId: record.id, userId: userId, stampType: stampType, createdAt: createdAt, updatedAt: now)
+    }
+
     func observeGroupMemberCount(
         groupId: String,
         onChange: @escaping (Result<Int, Error>) -> Void
@@ -467,6 +492,46 @@ final class FirebaseAppRepository: AppRepository {
             }
         }
         return AppObservation { registration.remove() }
+    }
+
+    func observeReactions(
+        groupId: String,
+        onChange: @escaping (Result<[Reaction], Error>) -> Void
+    ) -> AppObservation {
+        let registration = firestore.collection("reactions")
+            .whereField("groupId", isEqualTo: groupId)
+            .addSnapshotListener { snapshot, error in
+                Task { @MainActor in
+                    if let error {
+                        onChange(.failure(error))
+                        return
+                    }
+                    guard let snapshot else {
+                        onChange(.failure(AppRepositoryError.invalidBackendResponse))
+                        return
+                    }
+                    do {
+                        onChange(.success(try snapshot.documents.map(self.mapReaction)))
+                    } catch {
+                        onChange(.failure(error))
+                    }
+                }
+            }
+        return AppObservation { registration.remove() }
+    }
+
+    func saveDeviceToken(_ token: String) async throws {
+        guard let userId = auth.currentUser?.uid else { throw AppRepositoryError.unauthenticated }
+        let now = Date()
+        try await firestore.collection("devices").document(userId).setData([
+            "id": userId,
+            "userId": userId,
+            "fcmToken": token,
+            "platform": "ios",
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "debug",
+            "createdAt": FieldValue.serverTimestamp(),
+            "updatedAt": Timestamp(date: now),
+        ], merge: true)
     }
 
     func completeInviteForPreview() async throws {
@@ -837,6 +902,22 @@ final class FirebaseAppRepository: AppRepository {
             status: status,
             createdAt: date(data["createdAt"]),
             canceledAt: optionalDate(data["canceledAt"])
+        )
+    }
+
+    private func mapReaction(_ snapshot: QueryDocumentSnapshot) throws -> Reaction {
+        let data = snapshot.data()
+        guard let stampType = Reaction.StampType(rawValue: data["stampType"] as? String ?? "") else {
+            throw AppRepositoryError.invalidBackendResponse
+        }
+        return Reaction(
+            id: snapshot.documentID,
+            groupId: data["groupId"] as? String ?? "",
+            recordId: data["recordId"] as? String ?? "",
+            userId: data["userId"] as? String ?? "",
+            stampType: stampType,
+            createdAt: date(data["createdAt"]),
+            updatedAt: date(data["updatedAt"])
         )
     }
 

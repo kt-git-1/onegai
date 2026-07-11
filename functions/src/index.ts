@@ -1,6 +1,8 @@
 import {randomBytes} from "node:crypto";
 import {initializeApp} from "firebase-admin/app";
 import {FieldValue, Timestamp, getFirestore} from "firebase-admin/firestore";
+import {getMessaging} from "firebase-admin/messaging";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {setGlobalOptions} from "firebase-functions/v2/options";
 
@@ -75,6 +77,96 @@ function normalizeInviteIdentifier(value: unknown): string {
   const compact = trimmed.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return compact.length === 8 ? `${compact.slice(0, 4)}-${compact.slice(4)}` : trimmed;
 }
+
+async function displayName(userId: string): Promise<string> {
+  const snapshot = await db.collection("users").doc(userId).get();
+  return String(snapshot.get("displayName") ?? "相手");
+}
+
+async function tokensForUsers(userIds: string[]): Promise<string[]> {
+  const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+  const snapshots = await Promise.all(uniqueUserIds.map((userId) => db.collection("devices").doc(userId).get()));
+  return [...new Set(snapshots
+    .map((snapshot) => snapshot.get("fcmToken"))
+    .filter((token): token is string => typeof token === "string" && token.length > 0))];
+}
+
+async function sendPushToUsers(
+  userIds: string[],
+  notification: {title: string; body: string},
+  data: Record<string, string>,
+): Promise<void> {
+  const tokens = await tokensForUsers(userIds);
+  if (tokens.length === 0) return;
+  try {
+    await getMessaging().sendEachForMulticast({
+      tokens,
+      notification,
+      data,
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+          },
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Failed to send push notification", error);
+  }
+}
+
+export const notifyTicketIssued = onDocumentCreated("tickets/{ticketId}", async (event) => {
+  const ticket = event.data;
+  if (!ticket) return;
+  const groupId = String(ticket.get("groupId") ?? "");
+  const issuedBy = String(ticket.get("issuedBy") ?? "");
+  const title = String(ticket.get("title") ?? "ごほうび券");
+  if (!groupId || !issuedBy) return;
+
+  const members = await db.collection("groupMembers")
+    .where("groupId", "==", groupId)
+    .where("status", "==", "active")
+    .get();
+  const recipients = members.docs
+    .filter((doc) => doc.get("userId") !== issuedBy && doc.get("notificationRewardExchangeEnabled") !== false)
+    .map((doc) => String(doc.get("userId") ?? ""))
+    .filter(Boolean);
+  if (recipients.length === 0) return;
+
+  const actorName = await displayName(issuedBy);
+  await sendPushToUsers(
+    recipients,
+    {
+      title: "ごほうび券が発行されました",
+      body: `${actorName}さんが「${title}」を発行しました`,
+    },
+    {type: "ticketIssued", groupId, ticketId: event.params.ticketId},
+  );
+});
+
+export const notifyInviteAccepted = onDocumentCreated("groupMembers/{memberId}", async (event) => {
+  const member = event.data;
+  if (!member) return;
+  if (member.get("role") !== "member") return;
+  const groupId = String(member.get("groupId") ?? "");
+  const userId = String(member.get("userId") ?? "");
+  if (!groupId || !userId) return;
+
+  const group = await db.collection("groups").doc(groupId).get();
+  const ownerId = String(group.get("createdBy") ?? "");
+  if (!ownerId || ownerId === userId) return;
+
+  const actorName = await displayName(userId);
+  await sendPushToUsers(
+    [ownerId],
+    {
+      title: "相手が参加しました",
+      body: `${actorName}さんがおねがいチャリンに参加しました`,
+    },
+    {type: "inviteAccepted", groupId},
+  );
+});
 
 export const createInitialTemplate = onCall(async (request) => {
   const userId = requireUserId(request.auth);

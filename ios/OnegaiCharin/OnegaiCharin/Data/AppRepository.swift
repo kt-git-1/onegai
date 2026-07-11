@@ -89,10 +89,16 @@ protocol AppRepository {
     func useTicket(ticketId: String) async throws -> TicketUseResult
     func charinRequest(groupId: String, requestId: String) async throws -> CharinResult
     func cancelCharin(recordId: String) async throws -> CharinCancellationResult
+    func upsertReaction(record: ActivityRecord, stampType: Reaction.StampType) async throws -> Reaction
     func observeGroupMemberCount(
         groupId: String,
         onChange: @escaping (Result<Int, Error>) -> Void
     ) -> AppObservation
+    func observeReactions(
+        groupId: String,
+        onChange: @escaping (Result<[Reaction], Error>) -> Void
+    ) -> AppObservation
+    func saveDeviceToken(_ token: String) async throws
     func completeInviteForPreview() async throws
     func signOut() async throws
 }

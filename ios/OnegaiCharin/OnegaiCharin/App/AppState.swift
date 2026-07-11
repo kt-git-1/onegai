@@ -18,6 +18,7 @@ enum AppPhase: Equatable {
 @MainActor
 final class AppState: ObservableObject {
     private static let charinUndoDuration: TimeInterval = 10
+    private static let toastDuration: TimeInterval = 2.4
     @Published var phase: AppPhase = .onboarding
     @Published var onboardingPage = 0
     @Published var displayName = ""
@@ -35,14 +36,18 @@ final class AppState: ObservableObject {
     @Published private(set) var partnerProfile: UserProfile?
     @Published private(set) var records: [ActivityRecord] = []
     @Published private(set) var tickets: [Ticket] = []
+    @Published private(set) var reactions: [Reaction] = []
     @Published var issuedTicket: Ticket?
     @Published private(set) var activeCharin: CharinResult?
     @Published private(set) var pendingCharinUndo: PendingCharinUndo?
+    @Published private(set) var toast: AppToast?
+    @Published private(set) var notificationsEnabled = false
 
     private let repository: any AppRepository
     private let persistsPendingInvite: Bool
     private let pendingInviteStorageKey = "pendingInvite"
     private var partnerObservation: AppObservation?
+    private var reactionObservation: AppObservation?
 
     init(repository: (any AppRepository)? = nil) {
         if let repository {
@@ -265,6 +270,37 @@ final class AppState: ObservableObject {
         }
     }
 
+    func updateProfile(displayName: String, iconEmoji: String?) async -> Bool {
+        await perform {
+            let updated = try await repository.saveProfile(displayName: displayName, iconEmoji: iconEmoji)
+            profile = updated
+            self.displayName = updated.displayName
+            selectedEmoji = updated.iconEmoji
+            showToast(message: "プロフィールを保存しました", systemImage: "checkmark.circle.fill")
+        }
+    }
+
+    func requestPushNotifications() async {
+        await perform {
+            guard let token = try await PushNotificationController.requestAuthorizationAndToken() else {
+                notificationsEnabled = false
+                showToast(message: "通知が許可されませんでした", systemImage: "bell.slash.fill")
+                return
+            }
+            try await repository.saveDeviceToken(token)
+            notificationsEnabled = true
+            showToast(message: "通知をオンにしました", systemImage: "bell.fill")
+        }
+    }
+
+    func saveDeviceToken(_ token: String) async {
+        guard authenticatedUser != nil else { return }
+        await perform {
+            try await repository.saveDeviceToken(token)
+            notificationsEnabled = true
+        }
+    }
+
     func resolveInvite(code: String) async {
         await resolveInvite(identifier: code)
     }
@@ -409,6 +445,15 @@ final class AppState: ObservableObject {
         }
     }
 
+    func setReaction(_ stampType: Reaction.StampType, for record: ActivityRecord) async -> Bool {
+        await perform {
+            let reaction = try await repository.upsertReaction(record: record, stampType: stampType)
+            reactions.removeAll { $0.id == reaction.id }
+            reactions.append(reaction)
+            showToast(message: "\(stampType.label)を送りました", systemImage: "heart.fill")
+        }
+    }
+
     func charin(_ request: RequestItem) async -> Bool {
         await perform {
             let result = try await repository.charinRequest(groupId: request.groupId, requestId: request.id)
@@ -451,6 +496,12 @@ final class AppState: ObservableObject {
     func expireCharinUndoIfNeeded(at date: Date = Date()) {
         if let pendingCharinUndo, pendingCharinUndo.expiresAt <= date {
             self.pendingCharinUndo = nil
+        }
+    }
+
+    func expireToastIfNeeded(id: UUID, at date: Date = Date()) {
+        if let toast, toast.id == id, toast.expiresAt <= date {
+            self.toast = nil
         }
     }
 
@@ -502,9 +553,28 @@ final class AppState: ObservableObject {
         partnerObservation = nil
     }
 
+    func startObservingReactions() {
+        guard reactionObservation == nil, let groupId = initialTemplate?.group.id else { return }
+        reactionObservation = repository.observeReactions(groupId: groupId) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let updatedReactions):
+                applyReactionSnapshot(updatedReactions)
+            case .failure(let error):
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func stopObservingReactions() {
+        reactionObservation?.cancel()
+        reactionObservation = nil
+    }
+
     func signOut() async {
         await perform {
             stopObservingInviteCompletion()
+            stopObservingReactions()
             try await repository.signOut()
             reset()
         }
@@ -523,6 +593,7 @@ final class AppState: ObservableObject {
         partnerProfile = session.partnerProfile
         records = session.records
         tickets = session.tickets
+        reactions = session.reactions
         displayName = session.profile?.displayName ?? ""
         selectedEmoji = session.profile?.iconEmoji
 
@@ -543,7 +614,12 @@ final class AppState: ObservableObject {
             phase = .template
             return
         }
-        phase = template.group.memberIds.count >= 2 ? .main : .inviteWaiting
+        if template.group.memberIds.count >= 2 {
+            phase = .main
+            startObservingReactions()
+        } else {
+            phase = .inviteWaiting
+        }
     }
 
     private func resolveInvite(identifier: String) async {
@@ -563,9 +639,11 @@ final class AppState: ObservableObject {
         partnerProfile = session.partnerProfile
         records = session.records
         tickets = session.tickets
+        reactions = session.reactions
         self.pendingInvite = nil
         persistPendingInvite()
         phase = .main
+        startObservingReactions()
     }
 
     private func refreshAfterPartnerJoined() async {
@@ -576,7 +654,9 @@ final class AppState: ObservableObject {
             partnerProfile = session.partnerProfile
             records = session.records
             tickets = session.tickets
+            reactions = session.reactions
             phase = .main
+            startObservingReactions()
         }
     }
 
@@ -737,6 +817,38 @@ final class AppState: ObservableObject {
         records.removeAll { $0.id == result.recordId }
     }
 
+    private func applyReactionSnapshot(_ updatedReactions: [Reaction]) {
+        let previousById = Dictionary(uniqueKeysWithValues: reactions.map { ($0.id, $0) })
+        reactions = updatedReactions
+
+        guard let userId = authenticatedUser?.id else { return }
+        let ownActiveCharinRecordIds = Set(
+            records
+                .filter { $0.type == .charin && $0.status == .active && $0.userId == userId }
+                .map(\.id)
+        )
+        let incoming = updatedReactions
+            .filter { reaction in
+                reaction.userId != userId
+                    && ownActiveCharinRecordIds.contains(reaction.recordId)
+                    && previousById[reaction.id]?.stampType != reaction.stampType
+            }
+            .sorted { $0.updatedAt > $1.updatedAt }
+
+        guard let latest = incoming.first else { return }
+        showToast(
+            message: "\(displayName(for: latest.userId))から\(latest.stampType.label)が届きました",
+            systemImage: "heart.fill"
+        )
+    }
+
+    private func displayName(for userId: String) -> String {
+        if userId == authenticatedUser?.id {
+            return profile?.displayName ?? "あなた"
+        }
+        return partnerProfile?.displayName ?? "相手"
+    }
+
     func advanceOnboarding() {
         if onboardingPage < 2 {
             onboardingPage += 1
@@ -747,6 +859,7 @@ final class AppState: ObservableObject {
 
     func reset() {
         stopObservingInviteCompletion()
+        stopObservingReactions()
         onboardingPage = 0
         displayName = ""
         selectedEmoji = nil
@@ -758,12 +871,25 @@ final class AppState: ObservableObject {
         partnerProfile = nil
         records = []
         tickets = []
+        reactions = []
         issuedTicket = nil
         activeCharin = nil
         pendingCharinUndo = nil
+        toast = nil
+        notificationsEnabled = false
         pendingInvite = nil
         persistPendingInvite()
         passwordResetEmailSent = false
         phase = .authentication
+    }
+
+    private func showToast(message: String, systemImage: String) {
+        toast = AppToast(
+            id: UUID(),
+            message: message,
+            systemImage: systemImage,
+            style: .success,
+            expiresAt: Date().addingTimeInterval(Self.toastDuration)
+        )
     }
 }

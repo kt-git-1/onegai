@@ -44,6 +44,33 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["ちゃりん！"].waitForExistence(timeout: 3))
     }
 
+    func testRecordsCanReactToPartnersCharin() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-previewPhase", "main", "-previewTab", "records"]
+        app.launch()
+
+        let reactionButton = app.buttons["スタンプを選ぶ"]
+        XCTAssertTrue(reactionButton.waitForExistence(timeout: 3))
+        reactionButton.tap()
+        let stamp = app.buttons["ありがとう"]
+        XCTAssertTrue(stamp.waitForExistence(timeout: 2))
+        stamp.tap()
+        XCTAssertTrue(app.buttons["スタンプを変更"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["ありがとうを送りました"].waitForExistence(timeout: 2))
+    }
+
+    func testSettingsCanOpenFromHome() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-previewPhase", "main"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["設定"].waitForExistence(timeout: 3))
+        app.buttons["設定"].tap()
+        XCTAssertTrue(app.navigationBars["設定"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["名前とアイコンを編集"].exists)
+        XCTAssertTrue(app.staticTexts["招待コード"].exists)
+    }
+
     func testCharinReturnsHomeWithRemainingUndoTime() {
         let app = XCUIApplication()
         app.launchArguments = ["-previewPhase", "main", "-previewTab", "requests"]

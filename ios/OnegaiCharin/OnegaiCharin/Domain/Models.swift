@@ -11,19 +11,22 @@ struct AppSession: Equatable, Sendable {
     let partnerProfile: UserProfile?
     let records: [ActivityRecord]
     let tickets: [Ticket]
+    let reactions: [Reaction]
 
     init(
         profile: UserProfile?,
         initialTemplate: InitialTemplateResult?,
         partnerProfile: UserProfile? = nil,
         records: [ActivityRecord] = [],
-        tickets: [Ticket] = []
+        tickets: [Ticket] = [],
+        reactions: [Reaction] = []
     ) {
         self.profile = profile
         self.initialTemplate = initialTemplate
         self.partnerProfile = partnerProfile
         self.records = records
         self.tickets = tickets
+        self.reactions = reactions
     }
 }
 
@@ -180,6 +183,40 @@ struct ActivityRecord: Identifiable, Codable, Equatable, Sendable {
     let canceledAt: Date?
 }
 
+struct Reaction: Identifiable, Codable, Equatable, Sendable {
+    enum StampType: String, CaseIterable, Codable, Sendable {
+        case arigatou, saikou, tasukatta, suki, kami
+
+        var emoji: String {
+            switch self {
+            case .arigatou: "🙏"
+            case .saikou: "✨"
+            case .tasukatta: "🥹"
+            case .suki: "🫶"
+            case .kami: "👑"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .arigatou: "ありがとう"
+            case .saikou: "最高"
+            case .tasukatta: "たすかった"
+            case .suki: "すき"
+            case .kami: "神"
+            }
+        }
+    }
+
+    let id: String
+    let groupId: String
+    let recordId: String
+    let userId: String
+    var stampType: StampType
+    let createdAt: Date
+    var updatedAt: Date
+}
+
 struct TargetRewardProgress: Equatable, Sendable {
     let id: String
     let title: String
@@ -208,6 +245,18 @@ struct CharinCancellationResult: Equatable, Sendable {
 
 struct PendingCharinUndo: Equatable, Sendable {
     let recordId: String
+    let expiresAt: Date
+}
+
+struct AppToast: Equatable, Sendable {
+    enum Style: Equatable, Sendable {
+        case success
+    }
+
+    let id: UUID
+    let message: String
+    let systemImage: String
+    let style: Style
     let expiresAt: Date
 }
 

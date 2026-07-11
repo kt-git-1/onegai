@@ -25,16 +25,27 @@ struct MainTabView: View {
                 CharinUndoToast(pending: pending)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 82)
+            } else if let toast = appState.toast {
+                AppToastView(toast: toast)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 82)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: appState.toast)
+        .task {
+            appState.startObservingReactions()
         }
     }
 }
 
 private struct HomeToolbar: View {
+    let onSettings: () -> Void
+
     var body: some View {
         HStack {
             Spacer()
-            Button {} label: {
+            Button(action: onSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.appSecondary)
@@ -54,6 +65,7 @@ struct HomeView: View {
     @State private var selectedBankIndex: Int
     @State private var charinRequest: RequestItem?
     @State private var exchangeSelection: RewardExchangeSelection?
+    @State private var showsSettings = false
 
     init() {
         #if DEBUG
@@ -102,7 +114,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: AppSpacing.lg) {
-                HomeToolbar()
+                HomeToolbar { showsSettings = true }
 
                 if banks.isEmpty {
                     ContentUnavailableView(
@@ -213,6 +225,276 @@ struct HomeView: View {
                 onClose: { appState.issuedTicket = nil }
             )
         }
+        .sheet(isPresented: $showsSettings) {
+            SettingsView()
+        }
+    }
+}
+
+private struct SettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @State private var showsCopied = false
+    @State private var showsSignOutConfirmation = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    NavigationLink {
+                        ProfileSettingsView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            AvatarView(emoji: appState.profile?.iconEmoji, size: 44)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(appState.profile?.displayName ?? "プロフィール")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text("名前とアイコンを編集")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color.appSecondary)
+                            }
+                        }
+                    }
+                }
+
+                Section("ふたり") {
+                    SettingsInfoRow(
+                        title: "相手",
+                        value: appState.partnerProfile?.displayName ?? "未連携",
+                        systemImage: "person.2.fill"
+                    )
+                    SettingsInfoRow(title: "招待コード", value: appState.inviteCode, systemImage: "number")
+                    Button {
+                        if let inviteURL = appState.inviteURL {
+                            UIPasteboard.general.string = inviteURL.absoluteString
+                            withAnimation { showsCopied = true }
+                            Task {
+                                try? await Task.sleep(for: .seconds(1.6))
+                                withAnimation { showsCopied = false }
+                            }
+                        }
+                    } label: {
+                        SettingsActionRow(title: "招待リンクをコピー", systemImage: "doc.on.doc")
+                    }
+                    .disabled(appState.inviteURL == nil)
+
+                    Button {
+                        Task { await appState.reissueInvite() }
+                    } label: {
+                        SettingsActionRow(title: appState.isProcessing ? "再発行中…" : "招待リンクを再発行", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(appState.isProcessing)
+                }
+
+                Section("サポート") {
+                    Button {
+                        Task { await appState.requestPushNotifications() }
+                    } label: {
+                        SettingsActionRow(
+                            title: appState.notificationsEnabled ? "Push通知はオンです" : "Push通知を許可",
+                            systemImage: appState.notificationsEnabled ? "bell.badge.fill" : "bell.fill"
+                        )
+                    }
+                    .disabled(appState.isProcessing || appState.notificationsEnabled)
+
+                    Button {
+                        if let url = URL(string: "https://onegai-charin-dev.web.app/terms") {
+                            openURL(url)
+                        }
+                    } label: {
+                        SettingsActionRow(title: "利用規約", systemImage: "doc.text")
+                    }
+                    Button {
+                        if let url = URL(string: "https://onegai-charin-dev.web.app/privacy") {
+                            openURL(url)
+                        }
+                    } label: {
+                        SettingsActionRow(title: "プライバシーポリシー", systemImage: "hand.raised")
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        showsSignOutConfirmation = true
+                    } label: {
+                        Label("ログアウト", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .disabled(appState.isProcessing)
+                }
+            }
+            .modernFormBackground()
+            .navigationTitle("設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }
+                        .foregroundStyle(Color.appHeart)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if showsCopied {
+                    Label("招待リンクをコピーしました", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .frame(height: 42)
+                        .background(Color.appText)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(.bottom, 18)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .confirmationDialog("ログアウトしますか？", isPresented: $showsSignOutConfirmation, titleVisibility: .visible) {
+                Button("ログアウト", role: .destructive) {
+                    Task {
+                        await appState.signOut()
+                        dismiss()
+                    }
+                }
+                Button("キャンセル", role: .cancel) {}
+            }
+        }
+        .presentationDetents([.large])
+    }
+}
+
+private struct ProfileSettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var displayName = ""
+    @State private var selectedEmoji: String?
+    private let emojis = ["😊", "🌷", "☕️", "🌙", "🍰", "🫶"]
+
+    private var canSave: Bool {
+        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !appState.isProcessing
+    }
+
+    var body: some View {
+        List {
+            Section {
+                VStack(spacing: 12) {
+                    AvatarView(emoji: selectedEmoji, size: 96)
+                    Text("アイコン")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.appSecondary)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
+                        Button {
+                            selectedEmoji = nil
+                        } label: {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .frame(width: 40, height: 40)
+                        }
+                        .buttonStyle(.plain)
+                        .background(selectedEmoji == nil ? Color.appPrimarySoft : Color.appSurface)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(selectedEmoji == nil ? Color.appPrimary : Color.appBorder))
+
+                        ForEach(emojis, id: \.self) { emoji in
+                            Button {
+                                selectedEmoji = emoji
+                            } label: {
+                                Text(emoji)
+                                    .font(.system(size: 22))
+                                    .frame(width: 40, height: 40)
+                            }
+                            .buttonStyle(.plain)
+                            .background(selectedEmoji == emoji ? Color.appPrimarySoft : Color.appSurface)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(selectedEmoji == emoji ? Color.appPrimary : Color.appBorder))
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+
+            Section("名前") {
+                TextField("名前", text: $displayName)
+                    .textInputAutocapitalization(.never)
+            }
+
+            if let error = appState.errorMessage {
+                Section {
+                    Text(error)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.appError)
+                }
+            }
+        }
+        .modernFormBackground()
+        .navigationTitle("プロフィール")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(appState.isProcessing ? "保存中…" : "保存") {
+                    Task {
+                        let saved = await appState.updateProfile(displayName: displayName, iconEmoji: selectedEmoji)
+                        if saved { dismiss() }
+                    }
+                }
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.appHeart)
+                .disabled(!canSave)
+            }
+        }
+        .onAppear {
+            displayName = appState.profile?.displayName ?? appState.displayName
+            selectedEmoji = appState.profile?.iconEmoji ?? appState.selectedEmoji
+        }
+    }
+}
+
+private struct AvatarView: View {
+    let emoji: String?
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color.appPrimarySoft)
+            Circle().stroke(Color.appBorder)
+            if let emoji {
+                Text(emoji).font(.system(size: size * 0.44))
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.36, weight: .semibold))
+                    .foregroundStyle(Color.appDisabled)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+private struct SettingsInfoRow: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.appHeart)
+                .frame(width: 26)
+            Text(title)
+            Spacer()
+            Text(value)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.appSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+}
+
+private struct SettingsActionRow: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .foregroundStyle(Color.appText)
     }
 }
 
@@ -1149,6 +1431,36 @@ struct CharinUndoToast: View {
             let delay = max(pending.expiresAt.timeIntervalSinceNow, 0)
             try? await Task.sleep(for: .seconds(delay))
             appState.expireCharinUndoIfNeeded()
+        }
+    }
+}
+
+struct AppToastView: View {
+    @EnvironmentObject private var appState: AppState
+    let toast: AppToast
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: toast.systemImage)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color.appPrimary)
+                .frame(width: 28, height: 28)
+                .background(Color.appAccent.opacity(0.22))
+                .clipShape(Circle())
+            Text(toast.message)
+                .font(.system(size: 14, weight: .semibold))
+            Spacer()
+        }
+        .foregroundStyle(Color.appSurface)
+        .padding(.horizontal, 14)
+        .frame(height: 54)
+        .background(Color.appText)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
+        .task(id: toast.id) {
+            let delay = max(toast.expiresAt.timeIntervalSinceNow, 0)
+            try? await Task.sleep(for: .seconds(delay))
+            appState.expireToastIfNeeded(id: toast.id)
         }
     }
 }
@@ -2163,58 +2475,185 @@ private struct RewardEmptyState: View {
 }
 
 struct RecordsView: View {
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                Text("今月")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+    private enum RecordFilter: String, CaseIterable {
+        case all = "すべて"
+        case personal = "自分"
+        case shared = "ふたり"
+    }
 
-                VStack(spacing: 0) {
-                    record("マッサージ10分", detail: "今日 20:12", amount: "+100", icon: "💆")
-                    Divider().padding(.leading, 66)
-                    record("皿洗い", detail: "昨日 19:30", amount: "+50", icon: "🧽")
-                    Divider().padding(.leading, 66)
-                    record("スタバごほうび券", detail: "7月8日", amount: "-700", icon: "☕️")
-                }
-                .background(Color.appSurface)
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
-                .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
-                .shadow(color: Color.appText.opacity(0.055), radius: 8, y: 3)
+    @EnvironmentObject private var appState: AppState
+    @State private var filter: RecordFilter = .all
+    @State private var reactionRecordId: String?
+
+    private var visibleRecords: [ActivityRecord] {
+        appState.records
+            .filter { $0.status == .active }
+            .filter { record in
+                guard filter != .all else { return true }
+                let ownerType = appState.initialTemplate?.piggyBanks.first { $0.id == record.piggyBankId }?.ownerType
+                return filter == .personal ? ownerType == .personal : ownerType == .shared
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var dayGroups: [(date: Date, records: [ActivityRecord])] {
+        let calendar = Calendar.current
+        return Dictionary(grouping: visibleRecords) { calendar.startOfDay(for: $0.createdAt) }
+            .map { (date: $0.key, records: $0.value) }
+            .sorted { $0.date > $1.date }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TopTabBar(
+                items: RecordFilter.allCases.map { ($0, $0.rawValue) },
+                selection: $filter
+            )
+            .padding(.bottom, 12)
+
+            if dayGroups.isEmpty {
+                ContentUnavailableView {
+                    Label("まだきろくがありません", systemImage: "list.bullet.rectangle")
+                } description: {
+                    Text("最初のおねがいをちゃりんしてみよう")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        ForEach(dayGroups, id: \.date) { group in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(dayTitle(group.date))
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                                VStack(spacing: 0) {
+                                    ForEach(Array(group.records.enumerated()), id: \.element.id) { index, record in
+                                        RecordHistoryRow(
+                                            record: record,
+                                            actorName: actorName(for: record),
+                                            reaction: appState.reactions.first { $0.recordId == record.id },
+                                            canReact: canReact(to: record),
+                                            showsReactionPicker: reactionRecordId == record.id,
+                                            onToggleReactionPicker: {
+                                                withAnimation(.easeInOut(duration: 0.16)) {
+                                                    reactionRecordId = reactionRecordId == record.id ? nil : record.id
+                                                }
+                                            },
+                                            onSelectReaction: { stamp in
+                                                reactionRecordId = nil
+                                                Task { _ = await appState.setReaction(stamp, for: record) }
+                                            }
+                                        )
+                                        .zIndex(reactionRecordId == record.id ? 1 : 0)
+                                        if index < group.records.count - 1 {
+                                            Divider().padding(.leading, 66)
+                                        }
+                                    }
+                                }
+                                .background(Color.appSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+                                .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
+                                .shadow(color: Color.appText.opacity(0.055), radius: 8, y: 3)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 100)
+                }
+            }
         }
         .background(Color.appBackground)
         .brandNavigationTitle("きろく")
+        .onChange(of: filter) { reactionRecordId = nil }
     }
 
-    private func record(_ title: String, detail: String, amount: String, icon: String) -> some View {
+    private func dayTitle(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "今日" }
+        if calendar.isDateInYesterday(date) { return "昨日" }
+        return date.formatted(.dateTime.month().day().locale(Locale(identifier: "ja_JP")))
+    }
+
+    private func actorName(for record: ActivityRecord) -> String {
+        if record.userId == appState.authenticatedUser?.id {
+            return appState.profile?.displayName ?? "あなた"
+        }
+        return appState.partnerProfile?.displayName ?? "相手"
+    }
+
+    private func canReact(to record: ActivityRecord) -> Bool {
+        record.type == .charin && record.userId != appState.authenticatedUser?.id
+    }
+}
+
+private struct RecordHistoryRow: View {
+    let record: ActivityRecord
+    let actorName: String
+    let reaction: Reaction?
+    let canReact: Bool
+    let showsReactionPicker: Bool
+    let onToggleReactionPicker: () -> Void
+    let onSelectReaction: (Reaction.StampType) -> Void
+
+    private var actionText: String {
+        switch record.type {
+        case .charin: "\(actorName)がちゃりん"
+        case .rewardExchange: "\(actorName)が交換"
+        case .ticketUsed: "\(actorName)が使用済みにしました"
+        }
+    }
+
+    var body: some View {
         HStack(spacing: 12) {
-            Text(icon)
+            Text(record.iconEmoji)
                 .font(.system(size: 23))
                 .frame(width: 42, height: 42)
                 .background(Color.appPrimarySoft)
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 15, weight: .semibold))
-                Text(detail).font(.system(size: 12)).foregroundStyle(Color.appSecondary)
-            }
-            Spacer()
-            Text(amount)
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(amount.hasPrefix("+") ? Color.appSuccess : Color.appError)
-            Button(action: {}) {
-                Image(systemName: "face.smiling")
-                    .font(.system(size: 17, weight: .medium))
+                Text(record.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                Text("\(actionText)・\(record.createdAt.formatted(date: .omitted, time: .shortened))")
+                    .font(.system(size: 11))
                     .foregroundStyle(Color.appSecondary)
-                    .frame(width: 36, height: 36)
-                    .background(Color.appBackground)
-                    .clipShape(Circle())
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("スタンプを選ぶ")
+            Spacer(minLength: 4)
+            if record.coinDelta != 0 {
+                Text(record.coinDelta > 0 ? "+\(record.coinDelta)" : "\(record.coinDelta)")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(record.coinDelta > 0 ? Color.appSuccess : Color.appError)
+            }
+            if canReact {
+                Button(action: onToggleReactionPicker) {
+                    Text(reaction?.stampType.emoji ?? "☺️")
+                        .font(.system(size: 19))
+                        .frame(width: 36, height: 36)
+                        .background(reaction == nil ? Color.appBackground : Color.appPrimarySoft)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(reaction == nil ? "スタンプを選ぶ" : "スタンプを変更")
+            }
         }
         .padding(12)
+        .overlay(alignment: .bottomTrailing) {
+            if showsReactionPicker {
+                HStack(spacing: 2) {
+                    ForEach(Reaction.StampType.allCases, id: \.self) { stamp in
+                        Button { onSelectReaction(stamp) } label: {
+                            Text(stamp.emoji).font(.system(size: 20)).frame(width: 38, height: 38)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(stamp.label)
+                    }
+                }
+                .padding(6)
+                .background(Color.appSurface)
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+                .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
+                .shadow(color: Color.appText.opacity(0.14), radius: 10, y: 4)
+                .offset(y: 52)
+            }
+        }
     }
 }
