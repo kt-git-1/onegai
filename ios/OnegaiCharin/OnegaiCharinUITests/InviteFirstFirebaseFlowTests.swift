@@ -92,7 +92,7 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["confirm-charin-button"].waitForExistence(timeout: 2))
         app.buttons["confirm-charin-button"].tap()
 
-        XCTAssertTrue(app.staticTexts["おねがいチャリン"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["花男の貯金箱"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["cancel-charin-button"].exists)
     }
 
