@@ -10,7 +10,7 @@ struct MainTabView: View {
                 .tabItem { Label("ホーム", systemImage: "house.fill") }
                 .tag(0)
             NavigationStack { RequestsView() }
-                .tabItem { Label("お願い", systemImage: "heart.text.square") }
+                .tabItem { Label("おねがい", systemImage: "heart.text.square") }
                 .tag(1)
             NavigationStack { RewardsView() }
                 .tabItem { Label("ごほうび", systemImage: "ticket.fill") }
@@ -30,19 +30,22 @@ struct MainTabView: View {
     }
 }
 
-private struct AppHeader: View {
-    let title: String
-
+private struct HomeToolbar: View {
     var body: some View {
         HStack {
-            Text(title).font(.system(size: 20, weight: .bold))
             Spacer()
             Button {} label: {
-                Image(systemName: "gearshape.fill")
+                Image(systemName: "gearshape")
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.appSecondary)
                     .frame(width: 44, height: 44)
+                    .background(Color.appSurface)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.appBorder))
             }
+            .accessibilityLabel("設定")
         }
+        .frame(height: 48)
     }
 }
 
@@ -94,11 +97,12 @@ struct HomeView: View {
     }
 
     private var isShared: Bool { selectedBank?.ownerType == .shared }
+    private var bankCardSize: CGFloat { min(UIScreen.main.bounds.width - 32, 420) }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                AppHeader(title: "おねがいチャリン")
+            VStack(spacing: AppSpacing.lg) {
+                HomeToolbar()
 
                 if banks.isEmpty {
                     ContentUnavailableView(
@@ -108,39 +112,62 @@ struct HomeView: View {
                     )
                     .frame(minHeight: 360)
                 } else {
-                    Text(isShared ? "ふたり" : "自分")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.appSecondary)
-
-                    TabView(selection: $selectedBankIndex) {
-                        ForEach(Array(banks.enumerated()), id: \.element.id) { index, bank in
-                            BankCard(
-                                bank: bank,
-                                targetReward: appState.nearestReward(for: bank),
-                                onSelectTarget: { appState.presentRewardCreation() },
-                                onExchange: { reward in
-                                    exchangeSelection = RewardExchangeSelection(reward: reward, bank: bank)
+                    GeometryReader { proxy in
+                        ScrollView(.horizontal) {
+                            LazyHStack(spacing: 12) {
+                                ForEach(Array(banks.enumerated()), id: \.offset) { index, bank in
+                                    BankCard(
+                                        bank: bank,
+                                        targetReward: appState.nearestReward(for: bank),
+                                        onSelectTarget: { appState.presentRewardCreation() },
+                                        onExchange: { reward in
+                                            exchangeSelection = RewardExchangeSelection(reward: reward, bank: bank)
+                                        }
+                                    )
+                                    .frame(width: proxy.size.width, height: bankCardSize)
+                                    .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                                        content
+                                            .scaleEffect(phase.isIdentity ? 1 : 0.94)
+                                            .opacity(phase.isIdentity ? 1 : 0.72)
+                                            .rotation3DEffect(
+                                                .degrees(phase.value * -3),
+                                                axis: (x: 0, y: 1, z: 0),
+                                                perspective: 0.35
+                                            )
+                                    }
+                                    .id(index)
                                 }
-                            )
-                            .padding(.horizontal, 1)
-                            .tag(index)
+                            }
+                            .scrollTargetLayout()
                         }
+                        .scrollIndicators(.hidden)
+                        .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
+                        .scrollPosition(id: Binding<Int?>(
+                            get: { selectedBankIndex },
+                            set: { newValue in
+                                if let newValue { selectedBankIndex = newValue }
+                            }
+                        ))
+                        .sensoryFeedback(.selection, trigger: selectedBankIndex)
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .frame(height: 274)
+                    .frame(height: bankCardSize)
 
-                    HStack(spacing: 7) {
-                        ForEach(banks.indices, id: \.self) { index in
-                            Circle()
-                                .fill(index == selectedBankIndex ? Color.appHeart : Color.appBorder)
-                                .frame(width: 7, height: 7)
+                    if banks.count > 1 {
+                        HStack(spacing: 6) {
+                            ForEach(banks.indices, id: \.self) { index in
+                                Capsule()
+                                    .fill(index == selectedBankIndex ? Color.appHeart : Color.appBorder)
+                                    .frame(width: index == selectedBankIndex ? 18 : 6, height: 6)
+                            }
                         }
+                        .frame(height: 10)
+                        .animation(.easeInOut(duration: 0.2), value: selectedBankIndex)
+                        .accessibilityHidden(true)
                     }
-                    .frame(height: 12)
 
-                    HomeSection(title: isShared ? "ふたりのお願い" : "よく使うお願い") {
+                    HomeSection(title: isShared ? "ふたりのおねがい" : "よく使うおねがい") {
                         if selectedRequests.isEmpty {
-                            HomeEmptyRow(text: "まだお願いがありません")
+                            HomeEmptyRow(text: "まだおねがいがありません")
                         } else {
                             ForEach(Array(selectedRequests.enumerated()), id: \.element.id) { index, request in
                                 RequestRow(request: request) { charinRequest = request }
@@ -162,6 +189,7 @@ struct HomeView: View {
                 }
             }
             .padding(.horizontal, 16)
+            .padding(.top, 4)
             .padding(.bottom, 20)
         }
         .scrollIndicators(.hidden)
@@ -204,68 +232,159 @@ private struct BankCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 7) {
-            Text(bank.name)
-                .font(.system(size: 14, weight: .semibold))
-                .lineLimit(1)
+        VStack(spacing: 0) {
+            HStack {
+                Label(
+                    bank.ownerType == .shared ? "ふたり" : "自分",
+                    systemImage: bank.ownerType == .shared ? "person.2.fill" : "person.fill"
+                )
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.appHeart)
+
+                Spacer()
+
+                Text(bank.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.appSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.bottom, 4)
+
+            Spacer(minLength: 2)
+
             Group {
                 if bank.ownerType == .shared {
                     Image("DoublePiggyBank")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 132, height: 132)
-                        .frame(height: 88)
+                        .frame(width: 178, height: 126)
                         .clipped()
                         .accessibilityLabel("ふたりの貯金箱キャラクター")
                 } else {
-                    MascotView(size: .compact)
+                    Image("PiggyBank")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 126, height: 126)
+                        .accessibilityLabel("おねがいチャリンの貯金箱キャラクター")
                 }
             }
-            .frame(height: 88)
-            Text("\(bank.balance.formatted())コイン")
-                .font(.system(size: 28, weight: .bold)).monospacedDigit()
-            if let targetReward {
-                Text("次のごほうび：\(targetReward.iconEmoji) \(targetReward.title)")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.appSecondary)
-                    .lineLimit(1)
-                if remainingCoins == 0 {
-                    Button("交換する") { onExchange(targetReward) }
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.appText)
-                        .padding(.horizontal, 18)
-                        .frame(height: 36)
-                        .background(Color.appPrimary)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .accessibilityIdentifier("home-exchange-reward-button")
-                } else {
-                    Text("あと\(remainingCoins.formatted())コイン")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.appHeart)
+
+            Text(bank.balance.formatted())
+                .font(.system(size: 42, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            Text("コイン")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.appSecondary)
+                .padding(.top, -3)
+
+            Spacer(minLength: 10)
+
+            rewardPanel
+        }
+        .padding(18)
+        .background(BankCardBackground())
+        .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+        .shadow(color: Color.appText.opacity(0.08), radius: 12, y: 5)
+    }
+
+    @ViewBuilder
+    private var rewardPanel: some View {
+        if let targetReward {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(targetReward.iconEmoji)
+                        .font(.system(size: 22))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("次のごほうび")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.appSecondary)
+                        Text(targetReward.title)
+                            .font(.system(size: 13, weight: .bold))
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if remainingCoins == 0 {
+                        Button("交換する") { onExchange(targetReward) }
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.appText)
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .background(Color.appPrimary)
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
+                            .accessibilityIdentifier("home-exchange-reward-button")
+                    } else {
+                        Text("あと\(remainingCoins.formatted())")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color.appHeart)
+                    }
+                }
+                if remainingCoins > 0 {
                     ProgressView(value: progress)
                         .tint(Color.appPrimary)
-                        .padding(.horizontal, 20)
                 }
-            } else {
-                Text("ごほうび券を作ろう")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.appSecondary)
-                Button("ごほうび券を作る", action: onSelectTarget)
-                    .font(.system(size: 13, weight: .semibold))
+            }
+            .padding(12)
+            .background(Color.appPrimarySoft)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
+        } else {
+            Button(action: onSelectTarget) {
+                Label("ごほうび券を作る", systemImage: "plus")
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Color.appText)
-                    .padding(.horizontal, 16)
-                    .frame(height: 36)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
                     .background(Color.appPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+private struct BankCardBackground: View {
+    var body: some View {
+        ZStack {
+            Color.appSurface
+
+            VStack {
+                HStack {
+                    motif("sparkles", size: 19)
+                    Spacer()
+                    motif("heart.fill", size: 14)
+                }
+                Spacer()
+                HStack {
+                    motif("heart.fill", size: 18)
+                    Spacer()
+                    motif("sparkles", size: 22)
+                }
+            }
+            .padding(34)
+
+            Canvas { context, size in
+                let stripe = Path { path in
+                    var offset: CGFloat = -size.height
+                    while offset < size.width {
+                        path.move(to: CGPoint(x: offset, y: size.height))
+                        path.addLine(to: CGPoint(x: offset + size.height, y: 0))
+                        offset += 34
+                    }
+                }
+                context.stroke(
+                    stripe,
+                    with: .color(Color.appPrimary.opacity(0.15)),
+                    lineWidth: 1
+                )
             }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 238)
-        .padding(18)
-        .background(Color.appSurface)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+    }
+
+    private func motif(_ systemName: String, size: CGFloat) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: size, weight: .bold))
+            .foregroundStyle(Color.appHeart.opacity(0.14))
     }
 }
 
@@ -292,7 +411,11 @@ private struct RecordRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(record.iconEmoji).font(.system(size: 24)).frame(width: 38)
+            Text(record.iconEmoji)
+                .font(.system(size: 22))
+                .frame(width: 40, height: 40)
+                .background(Color.appPrimarySoft)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 3) {
                 Text(record.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                 Text(dateText).font(.system(size: 11)).foregroundStyle(Color.appSecondary)
@@ -300,6 +423,7 @@ private struct RecordRow: View {
             Spacer()
             Text(record.coinDelta > 0 ? "+\(record.coinDelta)" : "\(record.coinDelta)")
                 .font(.system(size: 13, weight: .semibold))
+                .monospacedDigit()
                 .foregroundStyle(record.coinDelta >= 0 ? Color.appSuccess : Color.appError)
         }
         .padding(12)
@@ -316,12 +440,13 @@ private struct HomeSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(size: 16, weight: .semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
             VStack(spacing: 0) { content }
                 .background(Color.appSurface)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appBorder))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
         }
     }
 }
@@ -332,7 +457,11 @@ private struct RequestRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(request.iconEmoji).font(.system(size: 24)).frame(width: 38)
+            Text(request.iconEmoji)
+                .font(.system(size: 22))
+                .frame(width: 40, height: 40)
+                .background(Color.appPrimarySoft)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 3) {
                 Text(request.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                 Text("+\(request.coinAmount)コイン ・ \(request.repeatType.displayName)").font(.system(size: 11)).foregroundStyle(Color.appSecondary)
@@ -342,7 +471,7 @@ private struct RequestRow: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color.appText)
                 .padding(.horizontal, 13).frame(height: 36)
-                .background(Color.appPrimary).clipShape(RoundedRectangle(cornerRadius: 9))
+                .background(Color.appPrimary).clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
         }
         .padding(12)
     }
@@ -367,8 +496,8 @@ struct RequestsView: View {
     var body: some View {
         VStack(spacing: 0) {
             Picker("貯金箱", selection: $bankType) {
-                Text("お願い").tag(PiggyBank.OwnerType.personal)
-                Text("ふたりのお願い").tag(PiggyBank.OwnerType.shared)
+                Text("おねがい").tag(PiggyBank.OwnerType.personal)
+                Text("ふたりのおねがい").tag(PiggyBank.OwnerType.shared)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 16)
@@ -377,9 +506,9 @@ struct RequestsView: View {
 
             if requests.isEmpty {
                 ContentUnavailableView {
-                    Label("まだお願いがありません", systemImage: "heart.text.square")
+                    Label("まだおねがいがありません", systemImage: "heart.text.square")
                 } actions: {
-                    Button("お願いを作る") { editorRoute = .create(bankType) }
+                    Button("おねがいを作る") { editorRoute = .create(bankType) }
                         .buttonStyle(PrimaryButtonStyle())
                         .fixedSize(horizontal: true, vertical: false)
                 }
@@ -411,12 +540,12 @@ struct RequestsView: View {
             }
         }
         .background(Color.appBackground)
-        .navigationTitle("お願い")
+        .brandNavigationTitle("おねがい")
         .toolbar {
             Button { editorRoute = .create(bankType) } label: {
                 Image(systemName: "plus")
             }
-            .accessibilityLabel("お願いを追加")
+            .accessibilityLabel("おねがいを追加")
             .accessibilityIdentifier("add-request-button")
         }
         .sheet(item: $editorRoute) { route in
@@ -550,13 +679,13 @@ private struct RequestEditorView: View {
 
     var body: some View {
         Form {
-            Section("お願い") {
+            Section("おねがい") {
                 Picker("アイコン", selection: $iconEmoji) {
                     ForEach(emojiOptions, id: \.self) { emoji in
                         Text(emoji).tag(emoji)
                     }
                 }
-                TextField("お願いの名前", text: $title)
+                TextField("おねがいの名前", text: $title)
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("request-title-field")
             }
@@ -595,14 +724,14 @@ private struct RequestEditorView: View {
 
             if request != nil {
                 Section {
-                    Button("このお願いを非表示にする", role: .destructive) {
+                    Button("このおねがいを非表示にする", role: .destructive) {
                         showsHideConfirmation = true
                     }
                     .disabled(appState.isProcessing)
                 }
             }
         }
-        .navigationTitle(request == nil ? "お願いを作る" : "お願いを編集")
+        .brandNavigationTitle(request == nil ? "おねがいを作る" : "おねがいを編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -616,7 +745,7 @@ private struct RequestEditorView: View {
             }
         }
         .confirmationDialog(
-            "このお願いを非表示にしますか？",
+            "このおねがいを非表示にしますか？",
             isPresented: $showsHideConfirmation,
             titleVisibility: .visible
         ) {
@@ -673,7 +802,7 @@ struct CharinConfirmationSheet: View {
                 .fill(Color.appBorder)
                 .frame(width: 38, height: 5)
 
-            Text("このお願いをちゃりんしますか？")
+            Text("このおねがいをちゃりんしますか？")
                 .font(.system(size: 20, weight: .bold))
 
             HStack(spacing: 12) {
@@ -1125,7 +1254,7 @@ struct RewardsView: View {
             }
         }
         .background(Color.appBackground)
-        .navigationTitle("ごほうび")
+        .brandNavigationTitle("ごほうび")
         .toolbar {
             Button {
                 statusFilter = .all
@@ -1747,7 +1876,7 @@ private struct TicketDetailView: View {
             .padding(.vertical, 18)
         }
         .background(Color.appBackground)
-        .navigationTitle("ごほうび券")
+        .brandNavigationTitle("ごほうび券")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } }
@@ -1951,7 +2080,7 @@ private struct RewardEditorView: View {
                 }
             }
         }
-        .navigationTitle(reward == nil ? "ごほうび券を作る" : "ごほうび券を編集")
+        .brandNavigationTitle(reward == nil ? "ごほうび券を作る" : "ごほうび券を編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -2025,7 +2154,7 @@ struct RecordsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
-        .navigationTitle("きろく")
+        .brandNavigationTitle("きろく")
     }
 
     private func record(_ title: String, detail: String, amount: String) -> some View {

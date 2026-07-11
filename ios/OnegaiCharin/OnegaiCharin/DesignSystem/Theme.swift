@@ -7,6 +7,12 @@ enum AppSpacing {
     static let lg: CGFloat = 16
     static let xl: CGFloat = 24
     static let xxl: CGFloat = 32
+    static let xxxl: CGFloat = 40
+}
+
+enum AppRadius {
+    static let control: CGFloat = 8
+    static let card: CGFloat = 8
 }
 
 extension Color {
@@ -33,7 +39,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .foregroundStyle(isEnabled ? Color.appText : Color.appDisabled)
             .frame(maxWidth: .infinity, minHeight: 52)
             .background(isEnabled ? (configuration.isPressed ? Color.appAccent : Color.appPrimary) : Color.appPrimarySoft)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
     }
 }
 
@@ -44,8 +50,8 @@ struct SecondaryButtonStyle: ButtonStyle {
             .foregroundStyle(Color.appText)
             .frame(maxWidth: .infinity, minHeight: 52)
             .background(configuration.isPressed ? Color.appPrimarySoft : Color.appSurface)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.appBorder))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: AppRadius.control).stroke(Color.appBorder))
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
     }
 }
 
@@ -75,6 +81,40 @@ struct MascotView: View {
     }
 }
 
+struct BrandTitle: View {
+    let title: String
+    var compact = true
+
+    var body: some View {
+        HStack(spacing: compact ? 7 : 9) {
+            Image("PiggyBank")
+                .resizable()
+                .scaledToFit()
+                .frame(width: compact ? 30 : 36, height: compact ? 30 : 36)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.system(size: compact ? 17 : 22, weight: .bold, design: .rounded))
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct BrandNavigationTitleModifier: ViewModifier {
+    let title: String
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    BrandTitle(title: title)
+                }
+            }
+    }
+}
+
 struct ScreenBackground: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -86,4 +126,7 @@ struct ScreenBackground: ViewModifier {
 
 extension View {
     func appScreen() -> some View { modifier(ScreenBackground()) }
+    func brandNavigationTitle(_ title: String) -> some View {
+        modifier(BrandNavigationTitleModifier(title: title))
+    }
 }

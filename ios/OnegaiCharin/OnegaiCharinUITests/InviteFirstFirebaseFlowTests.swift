@@ -11,7 +11,7 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["編集"].waitForExistence(timeout: 2))
 
         app.buttons["add-request-button"].tap()
-        XCTAssertTrue(app.navigationBars["お願いを作る"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.navigationBars["おねがいを作る"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.textFields["request-title-field"].exists)
         XCTAssertTrue(app.buttons["save-request-button"].exists)
     }
@@ -24,7 +24,7 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         let charin = app.buttons["ちゃりん"].firstMatch
         XCTAssertTrue(charin.waitForExistence(timeout: 3))
         charin.tap()
-        XCTAssertTrue(app.staticTexts["このお願いをちゃりんしますか？"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["このおねがいをちゃりんしますか？"].waitForExistence(timeout: 2))
         app.buttons["confirm-charin-button"].tap()
 
         XCTAssertTrue(app.staticTexts["ちゃりん！"].waitForExistence(timeout: 3))
@@ -55,7 +55,7 @@ final class InviteFirstFirebaseFlowTests: XCTestCase {
         personalBank.swipeLeft()
 
         XCTAssertTrue(app.staticTexts["ふたりの貯金箱"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["ふたりのお願い"].exists)
+        XCTAssertTrue(app.staticTexts["ふたりのおねがい"].exists)
     }
 
     func testRewardListFiltersByStatusAndBank() {

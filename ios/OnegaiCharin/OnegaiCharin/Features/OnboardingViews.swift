@@ -10,8 +10,8 @@ struct OnboardingView: View {
     @EnvironmentObject private var appState: AppState
 
     private let pages = [
-        OnboardingPage(title: "お願いを叶えたら、\nちゃりんしよう。", detail: "マッサージ、皿洗い、買い出し。\nふたりの毎日の“してくれて嬉しい”を\nコインにできます。", button: "次へ"),
-        OnboardingPage(title: "やさしさが、\nちゃりんと貯まる。", detail: "お願いをちゃりんすると、\n貯金箱にコインが入ります。", button: "次へ"),
+        OnboardingPage(title: "おねがいを叶えたら、\nちゃりんしよう。", detail: "マッサージ、皿洗い、買い出し。\nふたりの毎日の“してくれて嬉しい”を\nコインにできます。", button: "次へ"),
+        OnboardingPage(title: "やさしさが、\nちゃりんと貯まる。", detail: "おねがいをちゃりんすると、\n貯金箱にコインが入ります。", button: "次へ"),
         OnboardingPage(title: "貯まったコインで、\nごほうび券を交換。", detail: "スタバ、映画、焼肉デート。\nふたりで決めたごほうびを\n楽しく使えます。", button: "はじめる")
     ]
 

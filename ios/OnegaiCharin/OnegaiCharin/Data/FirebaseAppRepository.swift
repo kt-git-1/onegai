@@ -624,7 +624,7 @@ final class FirebaseAppRepository: AppRepository {
             id: snapshot.documentID,
             groupId: data["groupId"] as? String ?? "",
             createdBy: data["createdBy"] as? String ?? "",
-            title: data["title"] as? String ?? "お願い",
+            title: data["title"] as? String ?? "おねがい",
             iconEmoji: data["iconEmoji"] as? String ?? "✨",
             coinAmount: data["coinAmount"] as? Int ?? 0,
             piggyBankType: bankType,

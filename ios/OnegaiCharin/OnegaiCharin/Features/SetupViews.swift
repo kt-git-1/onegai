@@ -390,7 +390,7 @@ struct TemplateView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            SetupHeader(title: "最初のお願いを用意しよう", detail: "よく使うお願いを、あとから自由に変更できます。") {
+            SetupHeader(title: "最初のおねがいを用意しよう", detail: "よく使うおねがいを、あとから自由に変更できます。") {
                 appState.phase = .profile
             }
 
