@@ -20,6 +20,7 @@ extension Color {
     static let appSurface = Color("Surface")
     static let appPrimary = Color("Primary")
     static let appPrimarySoft = Color("PrimarySoft")
+    static let appOnPrimary = Color("OnPrimary")
     static let appAccent = Color("CoinAccent")
     static let appHeart = Color("Heart")
     static let appText = Color("TextPrimary")
@@ -28,6 +29,7 @@ extension Color {
     static let appBorder = Color("Border")
     static let appSuccess = Color("Success")
     static let appError = Color("Error")
+    static let appToastBackground = Color("ToastBackground")
 }
 
 struct PrimaryButtonStyle: ButtonStyle {
@@ -36,7 +38,7 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(isEnabled ? Color.appText : Color.appDisabled)
+            .foregroundStyle(isEnabled ? Color.appOnPrimary : Color.appDisabled)
             .frame(maxWidth: .infinity, minHeight: 52)
             .background(isEnabled ? (configuration.isPressed ? Color.appAccent : Color.appPrimary) : Color.appPrimarySoft)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.control))
@@ -119,6 +121,26 @@ struct BrandPatternBackground: View {
                 }
                 context.stroke(stripe, with: .color(Color.appPrimary.opacity(0.14)), lineWidth: 1)
             }
+        }
+    }
+}
+
+struct MascotSoftBackdrop: View {
+    var body: some View {
+        ZStack {
+            Color.appPrimarySoft.opacity(0.42)
+            Circle()
+                .fill(Color.appSurface.opacity(0.72))
+                .frame(width: 188, height: 188)
+                .offset(x: 42, y: -18)
+            Circle()
+                .fill(Color.appHeart.opacity(0.08))
+                .frame(width: 92, height: 92)
+                .offset(x: -78, y: 54)
+            Circle()
+                .fill(Color.appAccent.opacity(0.16))
+                .frame(width: 56, height: 56)
+                .offset(x: -94, y: -62)
         }
     }
 }

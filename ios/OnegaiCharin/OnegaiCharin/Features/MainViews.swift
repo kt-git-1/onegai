@@ -372,7 +372,7 @@ private struct SettingsView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .frame(height: 42)
-                        .background(Color.appText)
+                        .background(Color.appToastBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .padding(.bottom, 18)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -619,12 +619,13 @@ private struct AppPreferenceSettingsView: View {
                 Picker("表示", selection: $themeMode) {
                     Text("端末に合わせる").tag("system")
                     Text("ライト").tag("light")
+                    Text("ダーク").tag("dark")
                 }
                 .pickerStyle(.inline)
             } header: {
                 Text("テーマ")
             } footer: {
-                Text("ダークテーマは後続フェーズで仕上げます。Priority 1はライトテーマ基準です。")
+                Text("端末設定に合わせるか、ライト／ダークを固定できます。")
             }
         }
         .modernFormBackground()
@@ -778,7 +779,7 @@ private struct BankCard: View {
                         Button(action: { onExchange(targetReward) }) {
                             Text("交換する")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(Color.appText)
+                                .foregroundStyle(Color.appOnPrimary)
                                 .padding(.horizontal, 16)
                                 .frame(minHeight: 44)
                                 .background(Color.appPrimary)
@@ -805,7 +806,7 @@ private struct BankCard: View {
             Button(action: onSelectTarget) {
                 Label("ごほうび券を作る", systemImage: "plus")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.appText)
+                    .foregroundStyle(Color.appOnPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
                     .background(Color.appPrimary)
@@ -948,7 +949,7 @@ private struct RequestRow: View {
                 Spacer()
                 Text("ちゃりん")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.appText)
+                    .foregroundStyle(Color.appOnPrimary)
                     .padding(.horizontal, 13)
                     .frame(height: 36)
                     .background(Color.appPrimary)
@@ -1106,7 +1107,7 @@ private struct RequestListCard: View {
                 Button(action: onCharin) {
                     Text("ちゃりん")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.appText)
+                        .foregroundStyle(Color.appOnPrimary)
                         .padding(.horizontal, 14)
                         .frame(minHeight: 44)
                         .background(Color.appPrimary)
@@ -2197,7 +2198,7 @@ private struct TicketIssuedView: View {
                             Image(systemName: "heart.fill")
                         }
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color.appText)
+                        .foregroundStyle(Color.appOnPrimary)
                         .padding(.horizontal, 18)
                         .frame(height: 48)
                         .background(Color.appPrimary)
@@ -2343,7 +2344,7 @@ private struct TicketDetailView: View {
                         )
                         .font(.system(size: 12, weight: .bold))
                     }
-                    .foregroundStyle(Color.appText)
+                    .foregroundStyle(currentTicket.status == .used ? Color.appText : Color.appOnPrimary)
                     .padding(.horizontal, 20)
                     .frame(height: 58)
                     .background(currentTicket.status == .used ? Color.appBorder : Color.appPrimary)

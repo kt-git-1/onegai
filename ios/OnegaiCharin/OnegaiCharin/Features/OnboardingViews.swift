@@ -23,12 +23,11 @@ struct OnboardingView: View {
                 .foregroundStyle(Color.appSecondary)
 
             ZStack {
-                BrandPatternBackground()
+                MascotSoftBackdrop()
                 MascotView(size: .onboarding)
             }
             .frame(height: 222)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.card))
-            .overlay(RoundedRectangle(cornerRadius: AppRadius.card).stroke(Color.appBorder))
             .shadow(color: Color.appText.opacity(0.07), radius: 10, y: 4)
             .padding(.horizontal, 36)
             .padding(.top, 28)

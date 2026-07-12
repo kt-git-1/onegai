@@ -29,7 +29,7 @@ private struct CopyToast: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .frame(height: 42)
-            .background(Color.appText)
+            .background(Color.appToastBackground)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .padding(.bottom, 20)
     }
